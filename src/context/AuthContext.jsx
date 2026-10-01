@@ -17,8 +17,8 @@ export function AuthProvider({ children }) {
     setProfile(
       data || {
         id: user.id,
-        email: user.email,
-        full_name: meta.full_name || user.email,
+        email: meta.contact_email || '',
+        full_name: meta.full_name || 'Customer',
         mobile: meta.mobile || user.phone || '',
         business_name: meta.business_name || '',
       }

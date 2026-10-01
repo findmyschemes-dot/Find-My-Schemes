@@ -76,14 +76,18 @@ create table if not exists public.wallets (
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = '' as $$
+declare
+  v_meta   jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  v_mobile text  := nullif(regexp_replace(coalesce(v_meta ->> 'mobile', new.phone, ''), '\D', '', 'g'), '');
 begin
+  if v_mobile ~ '^[6-9][0-9]{9}$' then v_mobile := '91' || v_mobile; end if;
   insert into public.profiles (id, email, full_name, mobile, business_name)
   values (
     new.id,
-    new.email,
-    new.raw_user_meta_data ->> 'full_name',
-    coalesce(new.raw_user_meta_data ->> 'mobile', new.phone),
-    new.raw_user_meta_data ->> 'business_name'
+    lower(nullif(trim(v_meta ->> 'contact_email'), '')),   -- report-delivery email (login is by mobile)
+    v_meta ->> 'full_name',
+    v_mobile,
+    v_meta ->> 'business_name'
   )
   on conflict (id) do nothing;
 
@@ -374,7 +378,7 @@ create policy "queries: create own" on public.queries for insert to authenticate
 
 -- customers may edit only these profile columns
 revoke update on public.profiles from authenticated;
-grant update (full_name, mobile, business_name) on public.profiles to authenticated;
+grant update (full_name, business_name, email) on public.profiles to authenticated;
 
 -- =====================================================================
 -- 9. FUNCTIONS (the only way money and reports change)

@@ -3,11 +3,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import Alert from '../components/Alert'
 import OtpStep from '../components/OtpStep'
+import PhoneInput from '../components/PhoneInput'
 import { useAuth } from '../context/AuthContext'
-import { sendOtp, verifyOtp } from '../lib/otp'
-import { OTP_MODE } from '../config/app'
-
-const usesPhone = OTP_MODE === 'supabase_sms'
+import { sendOtp, verifyOtp, OTP_IS_TEST } from '../lib/otp'
+import { prettyPhone } from '../lib/phone'
 
 export default function Login() {
   const { user } = useAuth()
@@ -16,9 +15,9 @@ export default function Login() {
   const redirect = params.get('redirect')
   const target = redirect ? `/dashboard/${redirect}` : '/dashboard'
 
-  const [step, setStep] = useState('details') // details | otp
-  const [email, setEmail] = useState('')
-  const [mobile, setMobile] = useState('')
+  const [step, setStep] = useState('mobile') // mobile | otp
+  const [mobile, setMobile] = useState(params.get('mobile') || '')
+  const [digits, setDigits] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -30,38 +29,41 @@ export default function Login() {
     e?.preventDefault()
     setError('')
     setBusy(true)
-    const res = await sendOtp({ email, mode: 'login', profile: { mobile } })
+    const res = await sendOtp({ mobile, mode: 'login' })
     setBusy(false)
     if (!res.ok) return setError(res.error)
+    setDigits(res.digits)
     setStep('otp')
   }
 
   const verify = async (code) => {
     setError('')
     setBusy(true)
-    const res = await verifyOtp({ email, code, mode: 'login', profile: { mobile } })
+    const res = await verifyOtp({ digits, code, mode: 'login' })
     setBusy(false)
     if (!res.ok) return setError(res.error)
     navigate(target, { replace: true })
   }
 
+  const notFound = /sign up first/i.test(error)
+
   return (
-    <AuthLayout title="Welcome back" subtitle="Log in with a one-time code — no password needed.">
-      {step === 'details' ? (
+    <AuthLayout title="Welcome back" subtitle="Log in with the mobile number used to sign up. We'll send a one-time code.">
+      {step === 'mobile' ? (
         <>
           <Alert>{error}</Alert>
+          {notFound && (
+            <p className="-mt-2 mb-4 text-center text-sm">
+              <Link to={`/signup?mobile=${encodeURIComponent(mobile)}${redirect ? `&redirect=${redirect}` : ''}`} className="text-rust font-semibold hover:underline">
+                Create an account with this number →
+              </Link>
+            </p>
+          )}
           <form onSubmit={request} className="space-y-5">
-            {usesPhone ? (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-                <input type="tel" required placeholder="+91XXXXXXXXXX" value={mobile} onChange={(e) => setMobile(e.target.value)} className="input" />
-              </div>
-            ) : (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="input" />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+              <PhoneInput value={mobile} onChange={setMobile} autoFocus />
+            </div>
             <button type="submit" disabled={busy} className="btn-primary w-full py-3">
               {busy ? 'Sending code…' : 'Send OTP'}
             </button>
@@ -69,12 +71,13 @@ export default function Login() {
         </>
       ) : (
         <OtpStep
-          sentTo={usesPhone ? mobile : email}
+          sentTo={prettyPhone(digits)}
           onVerify={verify}
           onResend={request}
-          onBack={() => { setStep('details'); setError('') }}
+          onBack={() => { setStep('mobile'); setError('') }}
           error={error}
           busy={busy}
+          testMode={OTP_IS_TEST}
         />
       )}
       <div className="mt-8 text-center text-sm text-gray-600">

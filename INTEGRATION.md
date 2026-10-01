@@ -4,28 +4,21 @@ Everything below is a switch, not a rewrite. Screens and database stay the same.
 
 | Part | Today | Switch | Where |
 |---|---|---|---|
-| OTP | dummy (`123456`) | `VITE_OTP_MODE` | `src/lib/otp.js` |
+| Mobile OTP | dummy (`123456`) | `VITE_OTP_MODE` (`dummy` → `sms`) | `src/lib/otp.js` |
 | Payments | test checkout | `VITE_PAYMENT_MODE` + `app_settings.payment_mode` | `src/lib/payments.js` |
 | Reports | team emails PDF | `app_settings.generation_mode` | Edge Function (below) |
 
 ---
 
-## A. Real OTP
+## A. Real SMS OTP (customers log in by mobile number)
 
-### Email OTP (free, built into Supabase)
-1. Supabase → Authentication → **Email Templates → Magic Link**: put the code in the email, e.g.
-   `Your Find My Schemes code is {{ .Token }}`.
-2. Authentication → Providers → Email: turn **Confirm email ON** again.
-3. Recommended: Authentication → SMTP Settings → connect a sender (Resend, Zoho, SES). Supabase's
-   built-in sender only allows a few emails per hour.
-4. `.env`: `VITE_OTP_MODE=supabase_email`
+1. Supabase → Authentication → Sign In / Providers → **Phone**: enable it and connect an SMS provider
+   (Twilio, MessageBird, Vonage or Textlocal). In India the SMS template must be DLT-registered with the provider.
+2. `.env`: `VITE_OTP_MODE=sms`, then restart `npm run dev`.
+3. Nothing else changes: the same screens now send a real SMS code.
 
-### Mobile SMS OTP
-1. Supabase → Authentication → Providers → **Phone**: enable and connect Twilio / MessageBird / Vonage / Textlocal.
-   (India: the SMS template must be DLT-registered with the provider.)
-2. `.env`: `VITE_OTP_MODE=supabase_sms` — login then asks for mobile number (format `+91XXXXXXXXXX`).
-
-Accounts created in dummy mode keep working only in dummy mode; delete test users before going live.
+Test-mode accounts (created with code 123456) use a hidden login and will NOT work in SMS mode —
+delete them in Supabase → Authentication → Users before going live.
 
 ### Admin panel → real SMS OTP
 Once the Phone provider above is working:

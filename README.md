@@ -1,7 +1,8 @@
 # Find My Schemes — React + Supabase
 
 ## Customer flow
-1. **Sign up / log in with OTP** (no password). Test mode: code is always `123456`.
+1. **Sign up / log in with mobile number + OTP** (no password). Test mode: no SMS is sent, the code is always `123456`.
+   The email typed at sign-up is only used to deliver reports.
 2. New accounts land on **My Wallet** → pick a pack (₹499 / ₹1,499 / ₹2,499) → pay (test checkout for now).
 3. **Request Report** → detailed business form → ₹499 is deducted from the wallet.
    If the balance is below ₹499 the form can't be submitted (checked in the database, not just the page).

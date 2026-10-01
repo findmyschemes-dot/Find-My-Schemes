@@ -30,7 +30,7 @@ export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const { pathname } = useLocation()
   const navigate = useNavigate()
-  const name = profile?.full_name || user?.email
+  const name = profile?.full_name || 'Customer'
   const mainRef = useRef(null)
   useEffect(() => {
     mainRef.current?.scrollTo(0, 0) // start each page at the top

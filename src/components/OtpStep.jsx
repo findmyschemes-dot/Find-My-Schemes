@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import Alert from './Alert'
-import { OTP_LENGTH, OTP_RESEND_SECONDS, OTP_MODE, DUMMY_OTP } from '../config/app'
+import { OTP_LENGTH, OTP_RESEND_SECONDS, DUMMY_OTP } from '../config/app'
 
 // 6-box OTP input with resend timer
-export default function OtpStep({ sentTo, onVerify, onResend, onBack, error, busy, testMode = OTP_MODE === 'dummy' }) {
+export default function OtpStep({ sentTo, onVerify, onResend, onBack, error, busy, testMode = false }) {
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(''))
   const [timer, setTimer] = useState(OTP_RESEND_SECONDS)
   const refs = useRef([])
@@ -57,7 +57,7 @@ export default function OtpStep({ sentTo, onVerify, onResend, onBack, error, bus
       </p>
       {testMode && (
         <div className="p-3 rounded text-xs bg-yellow-50 text-yellow-800 border border-yellow-200 text-center">
-          Test mode: no real code is sent. Use <b className="tracking-widest">{DUMMY_OTP}</b>
+          Test mode: no SMS is sent. Use <b className="tracking-widest">{DUMMY_OTP}</b>
         </div>
       )}
       <Alert>{error}</Alert>

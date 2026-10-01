@@ -7,14 +7,8 @@
 import { adminSupabase as sb } from './supabaseAdmin'
 import { DUMMY_OTP } from '../config/app'
 
-export const normalizePhone = (raw) => {
-  let d = String(raw || '').replace(/\D/g, '')
-  if (d.length === 10) d = '91' + d // assume India when no country code
-  return d
-}
-
-export const prettyPhone = (digits) =>
-  digits?.startsWith('91') && digits.length === 12 ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`
+export { normalizePhone, prettyPhone } from '../lib/phone'
+import { normalizePhone } from '../lib/phone'
 
 // Test-mode admin accounts use a hidden email + password made from the number.
 const dummyIdentity = (digits) => {

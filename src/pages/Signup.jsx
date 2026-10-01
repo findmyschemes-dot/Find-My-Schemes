@@ -1,25 +1,27 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import Alert from '../components/Alert'
 import OtpStep from '../components/OtpStep'
+import PhoneInput from '../components/PhoneInput'
 import { useAuth } from '../context/AuthContext'
-import { sendOtp, verifyOtp } from '../lib/otp'
-import { OTP_MODE } from '../config/app'
+import { sendOtp, verifyOtp, OTP_IS_TEST } from '../lib/otp'
+import { prettyPhone } from '../lib/phone'
 
 export default function Signup() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [params] = useSearchParams()
   const [step, setStep] = useState('details')
-  const [form, setForm] = useState({ name: '', mobile: '', business: '', email: '', agree: false })
+  const [form, setForm] = useState({ name: '', mobile: params.get('mobile') || '', business: '', email: '', agree: false })
+  const [digits, setDigits] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [justSignedUp, setJustSignedUp] = useState(false)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
 
-  const profile = { full_name: form.name.trim(), mobile: form.mobile.trim(), business_name: form.business.trim() }
+  const profile = { full_name: form.name.trim(), business_name: form.business.trim(), email: form.email.trim().toLowerCase() }
 
-  // Already logged in (and not mid-signup) → dashboard
   useEffect(() => {
     if (user && !justSignedUp) navigate('/dashboard', { replace: true })
   }, [user, justSignedUp, navigate])
@@ -27,11 +29,11 @@ export default function Signup() {
   const request = async (e) => {
     e?.preventDefault()
     setError('')
-    if (!/^\+?\d[\d\s-]{8,14}$/.test(form.mobile.trim())) return setError('Please enter a valid mobile number')
     setBusy(true)
-    const res = await sendOtp({ email: form.email.trim(), mode: 'signup', profile })
+    const res = await sendOtp({ mobile: form.mobile, mode: 'signup', profile })
     setBusy(false)
     if (!res.ok) return setError(res.error)
+    setDigits(res.digits)
     setStep('otp')
   }
 
@@ -39,7 +41,7 @@ export default function Signup() {
     setError('')
     setBusy(true)
     setJustSignedUp(true)
-    const res = await verifyOtp({ email: form.email.trim(), code, mode: 'signup', profile })
+    const res = await verifyOtp({ digits, code, mode: 'signup', profile })
     setBusy(false)
     if (!res.ok) {
       setJustSignedUp(false)
@@ -49,29 +51,37 @@ export default function Signup() {
     navigate('/dashboard/wallet?welcome=1', { replace: true })
   }
 
+  const exists = /already exists/i.test(error)
+
   return (
     <AuthLayout
       wide
       title="Create your FindMySchemes account"
-      subtitle="Keep your scheme reports, wallet and business information in one place."
+      subtitle="Sign up with a mobile number. We'll send a one-time code to verify it."
     >
       {step === 'details' ? (
         <>
           <Alert>{error}</Alert>
+          {exists && (
+            <p className="-mt-2 mb-4 text-center text-sm">
+              <Link to={`/login?mobile=${encodeURIComponent(form.mobile)}`} className="text-rust font-semibold hover:underline">Log in with this number →</Link>
+            </p>
+          )}
           <form onSubmit={request} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
+              <PhoneInput value={form.mobile} onChange={(v) => setForm({ ...form, mobile: v })} autoFocus />
+              <p className="text-xs text-gray-500 mt-1">This number is used to log in.</p>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
                 <input type="text" required value={form.name} onChange={set('name')} className="input" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-                <input type="tel" required placeholder="+91XXXXXXXXXX" value={form.mobile} onChange={set('mobile')} className="input" />
+                <label className="block text-sm font-medium text-gray-700 mb-1">Business / Company Name</label>
+                <input type="text" required value={form.business} onChange={set('business')} className="input" />
               </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Business / Company Name</label>
-              <input type="text" required value={form.business} onChange={set('business')} className="input" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
@@ -86,18 +96,19 @@ export default function Signup() {
               </span>
             </label>
             <button type="submit" disabled={busy} className="btn-primary w-full py-3">
-              {busy ? 'Sending code…' : `Send OTP to ${OTP_MODE === 'supabase_sms' ? 'mobile' : 'email'}`}
+              {busy ? 'Sending code…' : 'Send OTP to Mobile'}
             </button>
           </form>
         </>
       ) : (
         <OtpStep
-          sentTo={OTP_MODE === 'supabase_sms' ? form.mobile : form.email}
+          sentTo={prettyPhone(digits)}
           onVerify={verify}
           onResend={request}
           onBack={() => { setStep('details'); setError('') }}
           error={error}
           busy={busy}
+          testMode={OTP_IS_TEST}
         />
       )}
       <div className="mt-6 text-center text-sm text-gray-600 border-t pt-6 border-gray-100">

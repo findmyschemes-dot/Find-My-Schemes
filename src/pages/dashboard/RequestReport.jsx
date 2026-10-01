@@ -67,7 +67,7 @@ export default function RequestReport() {
   // Keep a draft so nothing is lost while the person goes to recharge
   const DRAFT_KEY = 'fms-report-draft'
   const [form, setForm] = useState(() => {
-    const base = emptyForm({ ...profile, email: profile?.email || user?.email })
+    const base = emptyForm({ ...profile, email: profile?.email || '' })
     try {
       const saved = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null')
       return saved ? { ...base, ...saved } : base

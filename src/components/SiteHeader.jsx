@@ -9,7 +9,7 @@ export default function SiteHeader({ onReportClick }) {
   const { user, profile, signOut } = useAuth()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
-  const name = profile?.full_name || user?.email
+  const name = profile?.full_name || 'Customer'
 
   const logout = async (e) => {
     e.preventDefault()

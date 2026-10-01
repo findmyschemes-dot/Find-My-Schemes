@@ -19,9 +19,11 @@ create table if not exists public.admin_phones (
   created_at timestamptz not null default now()
 );
 
--- PLACEHOLDER — replace with the real number(s)
-insert into public.admin_phones (phone, name) values ('919999999999', 'Placeholder admin')
-on conflict (phone) do nothing;
+-- PLACEHOLDER — replace with the real number(s). Only added when the list is empty,
+-- so re-running this file never brings it back.
+insert into public.admin_phones (phone, name)
+select '919999999999', 'Placeholder admin'
+where not exists (select 1 from public.admin_phones);
 
 -- How admin login is checked:
 --   'dummy' → test code 123456 (LOCAL TESTING ONLY)
@@ -72,17 +74,23 @@ alter table public.profiles add column if not exists is_internal boolean not nul
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
-  v_internal boolean := coalesce((new.raw_user_meta_data ->> 'is_admin_account') = 'true', false)
-                        or exists (select 1 from public.admin_phones
-                                    where phone = regexp_replace(coalesce(new.phone, ''), '\D', '', 'g'));
+  v_meta     jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  v_mobile   text  := nullif(regexp_replace(coalesce(v_meta ->> 'mobile', new.phone, ''), '\D', '', 'g'), '');
+  v_internal boolean;
 begin
+  if v_mobile ~ '^[6-9][0-9]{9}$' then v_mobile := '91' || v_mobile; end if;  -- 10-digit Indian number
+  v_internal := coalesce((v_meta ->> 'is_admin_account') = 'true', false)
+                or exists (select 1 from public.admin_phones
+                            where phone = regexp_replace(coalesce(new.phone, ''), '\D', '', 'g'));
+
   insert into public.profiles (id, email, full_name, mobile, business_name, is_internal)
   values (
     new.id,
-    new.email,
-    new.raw_user_meta_data ->> 'full_name',
-    coalesce(new.raw_user_meta_data ->> 'mobile', new.phone),
-    new.raw_user_meta_data ->> 'business_name',
+    -- login is by mobile; the email typed at sign-up is the report-delivery address
+    lower(coalesce(nullif(trim(v_meta ->> 'contact_email'), ''), case when v_internal then new.email end)),
+    v_meta ->> 'full_name',
+    v_mobile,
+    v_meta ->> 'business_name',
     v_internal
   )
   on conflict (id) do nothing;
@@ -364,3 +372,48 @@ grant  execute on function public.admin_refund_report(uuid, text)          to au
 grant  execute on function public.admin_adjust_wallet(uuid, numeric, text) to authenticated;
 grant  execute on function public.admin_phone_allowed(text)                to anon, authenticated;
 grant  execute on function public.admin_login_mode()                       to anon, authenticated;
+
+
+-- ---------------------------------------------------------------------
+-- A7. Customer login by MOBILE NUMBER (re-run safe)
+-- ---------------------------------------------------------------------
+
+-- store every mobile as digits with country code (919876543210)
+update public.profiles
+   set mobile = case when regexp_replace(mobile, '\D', '', 'g') ~ '^[6-9][0-9]{9}$'
+                     then '91' || regexp_replace(mobile, '\D', '', 'g')
+                     else nullif(regexp_replace(mobile, '\D', '', 'g'), '') end
+ where mobile is not null and mobile !~ '^[0-9]{11,15}$';
+
+-- one customer account per mobile number (skipped with a notice if old test data has duplicates)
+do $$
+begin
+  if not exists (select mobile from public.profiles where mobile is not null and not is_internal
+                  group by mobile having count(*) > 1) then
+    create unique index if not exists profiles_mobile_customer_uidx
+      on public.profiles (mobile) where mobile is not null and not is_internal;
+  else
+    raise notice 'Duplicate mobile numbers in profiles — delete old test users, then re-run this file.';
+  end if;
+end $$;
+
+-- login/sign-up screens ask "is this number registered?" (yes/no only)
+create or replace function public.mobile_registered(p_mobile text)
+returns boolean
+language sql stable security definer set search_path = '' as $$
+  with d as (
+    select case when regexp_replace(coalesce(p_mobile, ''), '\D', '', 'g') ~ '^[6-9][0-9]{9}$'
+                then '91' || regexp_replace(p_mobile, '\D', '', 'g')
+                else regexp_replace(coalesce(p_mobile, ''), '\D', '', 'g') end as m
+  )
+  select exists (select 1 from public.profiles p, d where p.mobile = d.m and not p.is_internal)
+      or exists (select 1 from auth.users u, d
+                  where regexp_replace(coalesce(u.phone, ''), '\D', '', 'g') = d.m
+                    and not exists (select 1 from public.profiles p where p.id = u.id and p.is_internal))
+$$;
+revoke execute on function public.mobile_registered(text) from public;
+grant  execute on function public.mobile_registered(text) to anon, authenticated;
+
+-- customers may edit name, business and report email — NOT the mobile (it is their login)
+revoke update on public.profiles from authenticated;
+grant update (full_name, business_name, email) on public.profiles to authenticated;
