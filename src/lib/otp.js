@@ -84,7 +84,15 @@ export async function verifyOtp({ digits, code, mode, profile }) {
     mode === 'signup'
       ? await supabase.auth.signUp({ email, password, options: { data: metaFrom(profile, digits) } })
       : await supabase.auth.signInWithPassword({ email, password })
-  if (res.error) return { ok: false, error: friendly(res.error, mode) }
+  if (res.error) {
+    // Number is on file but has no mobile login → it was created with the old email login
+    if (mode === 'login' && /invalid login/i.test(res.error.message || '') && (await numberRegistered(digits)))
+      return {
+        ok: false,
+        error: 'This number belongs to an older test account made with email login. Delete it in Supabase (Authentication → Users) and sign up again with the mobile number.',
+      }
+    return { ok: false, error: friendly(res.error, mode) }
+  }
   if (mode === 'signup' && !res.data.session)
     return { ok: false, error: 'Turn OFF "Confirm email" in Supabase (Authentication → Sign In / Providers → Email) while in test mode.' }
   return { ok: true }
