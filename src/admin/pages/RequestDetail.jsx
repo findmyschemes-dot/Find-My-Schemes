@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router-dom'
 import { adminApi, adminErr } from '../adminApi'
 import { useAdmin } from '../AdminAuth'
 import { fmtINR } from '../../lib/format'
-import { ReportStatusBadge } from '../../components/StatusBadge'
+import { prettyPhone } from '../../lib/phone'
+import { PaymentBadge, WorkBadge } from '../../components/StatusBadge'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime, ageText } from './Requests'
@@ -38,8 +39,9 @@ export default function RequestDetail() {
   const [msg, setMsg] = useState({})
   const [busy, setBusy] = useState('')
   const [form, setForm] = useState({})
-  const [refundOpen, setRefundOpen] = useState(false)
-  const [refundNote, setRefundNote] = useState('')
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelNote, setCancelNote] = useState('')
+  const [pay, setPay] = useState({ amount: '', method: 'UPI', reference: '', note: '' })
   const [scheme, setScheme] = useState({ name: '', govt_level: 'Central Govt', sector: '', benefit: '', match_score: '', description: '', why_eligible: '' })
   const fileRef = useRef(null)
 
@@ -80,7 +82,8 @@ export default function RequestDetail() {
   if (!r) return <div className="p-8 text-center text-red-600">Request not found.</div>
 
   const open = ['submitted', 'processing'].includes(r.status)
-  const locked = r.status === 'refunded'
+  const locked = r.status === 'cancelled'
+  const paidOk = ['paid', 'waived'].includes(r.payment_status)
   const intOrNull = (v) => (v === '' || v == null ? null : parseInt(v, 10))
 
   const setStatus = (status, ok) =>
@@ -127,12 +130,13 @@ export default function RequestDetail() {
         <div>
           <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-2xl font-bold text-darkGreen">{r.business_name}</h1>
-            <ReportStatusBadge status={r.status} />
+            <WorkBadge status={r.status} />
+            <PaymentBadge status={r.payment_status} />
           </div>
           <p className="text-sm text-gray-500 mt-1">
             {r.report_code} · submitted {fmtDateTime(r.created_at)}
-            {open && (
-              <span className={r.age_hours > sla ? 'text-red-600 font-semibold' : ''}> · waiting {ageText(r.age_hours)}{r.age_hours > sla && ' (overdue)'}</span>
+            {open && paidOk && (
+              <span className={r.age_hours > sla ? 'text-red-600 font-semibold' : ''}> · {ageText(r.age_hours)} since payment{r.age_hours > sla && ' (overdue)'}</span>
             )}
             {r.delivered_at && <> · delivered {fmtDateTime(r.delivered_at)}</>}
           </p>
@@ -152,8 +156,8 @@ export default function RequestDetail() {
             {r.status === 'ready' && (
               <button onClick={() => setStatus('processing', 'Moved back to In Review.')} disabled={!!busy} className="btn-outline px-4 py-2 text-sm">Reopen</button>
             )}
-            <button onClick={() => setRefundOpen(true)} disabled={!!busy} className="px-4 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 font-semibold">
-              <i className="fa-solid fa-rotate-left mr-1" /> Refund {fmtINR(r.price_charged)}
+            <button onClick={() => setCancelOpen(true)} disabled={!!busy} className="px-4 py-2 text-sm rounded border border-red-200 text-red-700 hover:bg-red-50 font-semibold">
+              <i className="fa-solid fa-ban mr-1" /> Cancel request
             </button>
           </div>
         )}
@@ -161,20 +165,28 @@ export default function RequestDetail() {
 
       <Alert type={msg.type === 'success' ? 'success' : 'error'}>{msg.text}</Alert>
 
-      {refundOpen && (
+      {!locked && r.payment_status === 'awaiting' && (
+        <div className="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm">
+          <i className="fa-solid fa-clock mr-2" />Payment of {fmtINR(r.amount_due)} not confirmed yet. Mark it paid (right) once the money is received.
+        </div>
+      )}
+
+      {cancelOpen && (
         <div className="card p-5 mb-4 border-red-200 bg-red-50/40">
-          <p className="font-semibold text-red-800 mb-2">Refund {fmtINR(r.price_charged)} to {r.customer_name || 'the customer'}'s wallet?</p>
-          <p className="text-sm text-red-800/80 mb-3">The request will be closed as Refunded. This cannot be undone.</p>
-          <input value={refundNote} onChange={(e) => setRefundNote(e.target.value)} placeholder="Reason shown to the customer" className="input mb-3" />
+          <p className="font-semibold text-red-800 mb-2">Cancel request {r.report_code}?</p>
+          <p className="text-sm text-red-800/80 mb-3">
+            The customer sees it as cancelled with the reason below.{r.payment_status === 'paid' && ' If money is returned, also mark the payment as Refunded.'}
+          </p>
+          <input value={cancelNote} onChange={(e) => setCancelNote(e.target.value)} placeholder="Reason shown to the customer" className="input mb-3" />
           <div className="flex gap-2">
             <button
               disabled={!!busy}
-              onClick={() => run('refund', () => adminApi.refund(r.id, refundNote || null), 'Refunded to wallet.').then(() => setRefundOpen(false))}
+              onClick={() => run('cancel', () => adminApi.updateReport(r.id, { status: 'cancelled', status_note: cancelNote || 'Cancelled by the team' }), 'Request cancelled.').then(() => setCancelOpen(false))}
               className="px-4 py-2 text-sm rounded bg-red-600 text-white font-semibold hover:bg-red-700"
             >
-              {busy === 'refund' ? 'Refunding…' : 'Confirm refund'}
+              {busy === 'cancel' ? 'Cancelling…' : 'Confirm cancel'}
             </button>
-            <button onClick={() => setRefundOpen(false)} className="px-4 py-2 text-sm text-gray-600">Cancel</button>
+            <button onClick={() => setCancelOpen(false)} className="px-4 py-2 text-sm text-gray-600">Keep request</button>
           </div>
         </div>
       )}
@@ -262,7 +274,7 @@ export default function RequestDetail() {
             <div className="text-sm space-y-1">
               <div className="font-semibold text-gray-900">{r.customer_name || '—'}</div>
               <div className="text-gray-600"><i className="fa-regular fa-envelope w-4 mr-1" />{r.customer_email}</div>
-              {r.customer_mobile && <div className="text-gray-600"><i className="fa-solid fa-phone w-4 mr-1" />{r.customer_mobile}</div>}
+              {r.customer_mobile && <div className="text-gray-600"><i className="fa-solid fa-phone w-4 mr-1" />{prettyPhone(r.customer_mobile)}</div>}
               <div className="pt-2 text-gray-600">Send report to: <b className="text-gray-900">{r.delivery_email}</b></div>
               <div className="flex gap-3 pt-3">
                 <a href={`mailto:${r.delivery_email}?subject=${encodeURIComponent(`Your Scheme Eligibility Report — ${r.report_code}`)}`} className="text-darkGreen font-medium hover:text-rust"><i className="fa-solid fa-paper-plane mr-1" />Email</a>
@@ -270,16 +282,78 @@ export default function RequestDetail() {
               </div>
             </div>
           </Card>
-          <Card title="Payment">
-            <div className="text-sm flex justify-between"><span className="text-gray-500">Charged from wallet</span><b>{fmtINR(r.price_charged)}</b></div>
-            <div className="text-sm flex justify-between mt-1"><span className="text-gray-500">Mode</span><span>{r.generation_mode === 'ai' ? 'AI' : 'Manual (team)'}</span></div>
+          <Card title="Payment" right={<PaymentBadge status={r.payment_status} />}>
+            <div className="text-sm space-y-1 mb-3">
+              <div className="flex justify-between"><span className="text-gray-500">Amount due</span><b>{fmtINR(r.amount_due)}</b></div>
+              {r.payment_status === 'paid' && (
+                <>
+                  <div className="flex justify-between"><span className="text-gray-500">Received</span><b>{fmtINR(r.amount_paid)}</b></div>
+                  <div className="flex justify-between"><span className="text-gray-500">On</span><span>{fmtDateTime(r.paid_at)}</span></div>
+                </>
+              )}
+              {r.payment_method && <div className="flex justify-between"><span className="text-gray-500">Method</span><span>{r.payment_method}</span></div>}
+              {r.payment_reference && <div className="flex justify-between gap-2"><span className="text-gray-500">Reference</span><span className="text-right break-all">{r.payment_reference}</span></div>}
+              {r.payment_note && <div className="text-gray-600 text-xs pt-1">{r.payment_note}</div>}
+            </div>
+
+            {r.payment_status === 'awaiting' && !locked && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  run('pay', () => adminApi.setPayment(r.id, {
+                    payment_status: 'paid',
+                    amount_paid: pay.amount === '' ? r.amount_due : Number(pay.amount),
+                    payment_method: pay.method,
+                    payment_reference: pay.reference.trim() || null,
+                    payment_note: pay.note.trim() || null,
+                  }), 'Marked as paid — the request is now in the work queue.')
+                }}
+                className="space-y-2 border-t border-gray-100 pt-3"
+              >
+                <div className="grid grid-cols-2 gap-2">
+                  <div><Label>Amount (₹)</Label><input type="number" min="0" step="1" placeholder={String(r.amount_due)} value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} className="input py-1.5 text-sm" /></div>
+                  <div><Label>Method</Label>
+                    <select value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })} className="input py-1.5 text-sm">
+                      {['UPI', 'Bank transfer', 'Cash', 'Card', 'Cheque', 'Other'].map((m) => <option key={m}>{m}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div><Label>Reference / UTR</Label><input value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} placeholder="e.g. 4321XXXXXXXX" className="input py-1.5 text-sm" /></div>
+                <div><Label>Note (internal)</Label><input value={pay.note} onChange={(e) => setPay({ ...pay, note: e.target.value })} className="input py-1.5 text-sm" /></div>
+                <button disabled={!!busy} className="btn-primary w-full py-2 text-sm">{busy === 'pay' ? 'Saving…' : 'Mark as paid'}</button>
+                <button
+                  type="button"
+                  disabled={!!busy}
+                  onClick={() => run('waive', () => adminApi.setPayment(r.id, { payment_status: 'waived', payment_note: pay.note.trim() || 'Waived' }), 'Payment waived.')}
+                  className="w-full text-xs text-gray-500 hover:text-gray-800 py-1"
+                >
+                  Waive payment (free report)
+                </button>
+              </form>
+            )}
+
+            {r.payment_status === 'paid' && (
+              <div className="flex gap-3 border-t border-gray-100 pt-3 text-xs">
+                <button disabled={!!busy} onClick={() => run('refund', () => adminApi.setPayment(r.id, { payment_status: 'refunded' }), 'Marked as refunded.')} className="text-red-600 hover:underline">Mark refunded</button>
+                <button disabled={!!busy} onClick={() => run('undo', () => adminApi.setPayment(r.id, { payment_status: 'awaiting', payment_method: null, payment_reference: null }), 'Payment moved back to awaiting.')} className="text-gray-500 hover:underline">Undo — not paid</button>
+              </div>
+            )}
+            {['waived', 'refunded'].includes(r.payment_status) && (
+              <div className="border-t border-gray-100 pt-3 text-xs">
+                <button disabled={!!busy} onClick={() => run('undo', () => adminApi.setPayment(r.id, { payment_status: 'awaiting' }), 'Payment moved back to awaiting.')} className="text-gray-500 hover:underline">Back to awaiting payment</button>
+              </div>
+            )}
           </Card>
           <Card title="History">
             <ol className="relative border-l border-gray-200 ml-2 space-y-3">
               {events.map((e) => (
                 <li key={e.id} className="ml-4">
                   <span className="absolute -left-1.5 w-3 h-3 rounded-full bg-darkGreen mt-1" />
-                  <ReportStatusBadge status={e.status} className="px-2 py-0.5 rounded text-[11px]" />
+                  {e.kind === 'payment' ? (
+                    <PaymentBadge status={e.status} className="px-2 py-0.5 rounded text-[11px]" />
+                  ) : (
+                    <WorkBadge status={e.status} className="px-2 py-0.5 rounded text-[11px]" />
+                  )}
                   <div className="text-xs text-gray-500 mt-0.5">{fmtDateTime(e.created_at)} · by {e.actor}</div>
                   {e.note && <div className="text-xs text-gray-700">{e.note}</div>}
                 </li>

@@ -1,0 +1,3 @@
+# Used only if deploying with the Supabase CLI:  npx supabase functions deploy phone-login
+[functions.phone-login]
+verify_jwt = false

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAsync } from '../../lib/useAsync'
-import { fmtDate } from '../../lib/format'
+import { fmtDate, fmtINR } from '../../lib/format'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import EmptyState from '../../components/EmptyState'
@@ -55,7 +55,7 @@ export default function Reports() {
               <div className="p-5 border-b border-gray-50">
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-xs font-semibold text-gray-500 uppercase">#{r.report_code}</span>
-                  <ReportStatusBadge status={r.status} className="px-2 py-0.5 rounded text-[10px] uppercase" />
+                  <ReportStatusBadge report={r} className="px-2 py-0.5 rounded text-[10px] uppercase" />
                 </div>
                 <h3 className="font-bold text-lg text-gray-900 leading-tight mb-1">{r.business_name}</h3>
                 <p className="text-xs text-gray-500">{fmtDate(r.created_at)} • {r.industry}</p>
@@ -72,10 +72,16 @@ export default function Reports() {
                       <span className="font-bold text-darkGreen">{r.potential_benefit || '—'}</span>
                     </div>
                   </>
-                ) : r.status === 'refunded' ? (
+                ) : r.status === 'cancelled' || r.payment_status === 'refunded' ? (
                   <div className="text-center py-4">
-                    <i className="fa-solid fa-rotate-left text-gray-300 text-3xl mb-2" />
-                    <p className="text-sm text-gray-500">{r.status_note || 'The amount was refunded to the wallet.'}</p>
+                    <i className="fa-solid fa-ban text-gray-300 text-3xl mb-2" />
+                    <p className="text-sm text-gray-500">{r.status_note || (r.payment_status === 'refunded' ? 'Payment refunded.' : 'This request was cancelled.')}</p>
+                  </div>
+                ) : r.payment_status === 'awaiting' ? (
+                  <div className="text-center py-4">
+                    <i className="fa-solid fa-indian-rupee-sign text-yellow-500 text-3xl mb-2" />
+                    <p className="text-sm text-gray-700 font-medium">Payment of {fmtINR(r.amount_due)} pending</p>
+                    <p className="text-xs text-gray-500 mt-1">Open the request for payment details. Work starts once payment is confirmed.</p>
                   </div>
                 ) : (
                   <div className="text-center py-4">
@@ -85,7 +91,9 @@ export default function Reports() {
                 )}
               </div>
               <div className="p-4 border-t border-gray-100 flex gap-2">
-                <Link to={`/dashboard/reports/${r.id}`} className="flex-1 btn-outline text-center py-2 text-sm font-medium">View Details</Link>
+                <Link to={`/dashboard/reports/${r.id}`} className="flex-1 btn-outline text-center py-2 text-sm font-medium">
+                  {r.payment_status === 'awaiting' && r.status !== 'cancelled' ? 'How to Pay' : 'View Details'}
+                </Link>
                 {ready && r.report_file_path && <PdfButton path={r.report_file_path} />}
               </div>
             </div>

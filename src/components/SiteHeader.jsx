@@ -47,7 +47,6 @@ export default function SiteHeader({ onReportClick }) {
                   ['/dashboard', 'Dashboard'],
                   ['/dashboard/reports', 'My Reports'],
                   ['/dashboard/applications', 'My Applications'],
-                  ['/dashboard/wallet', 'My Wallet'],
                   ['/dashboard/profile', 'Profile'],
                 ].map(([to, label]) => (
                   <Link key={to} to={to} className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">{label}</Link>

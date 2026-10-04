@@ -45,7 +45,7 @@ export function AdminAuthProvider({ children }) {
     loading,
     settings,
     sla: Number(settings.delivery_sla_hours ?? 24),
-    phone: session?.user?.user_metadata?.admin_phone || session?.user?.phone || '',
+    phone: session?.user?.app_metadata?.verified_phone || session?.user?.phone || '',
     refresh: async () => {
       const { data } = await sb.auth.getSession()
       setSession(data.session)

@@ -1,8 +1,8 @@
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { api } from '../../lib/api'
 import { useAsync } from '../../lib/useAsync'
-import { fmtDate, fmtINR, firstName } from '../../lib/format'
+import { fmtDate, firstName } from '../../lib/format'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { ReportStatusBadge } from '../../components/StatusBadge'
@@ -22,7 +22,8 @@ function Stat({ label, value, icon, tint }) {
 }
 
 export default function Overview() {
-  const { profile, user, wallet, pricing } = useAuth()
+  const { profile, user } = useAuth()
+  const [params] = useSearchParams()
   const { data, loading, error } = useAsync(
     () => Promise.all([api.listReports()]),
     [user?.id]
@@ -30,20 +31,37 @@ export default function Overview() {
   if (loading) return <Spinner />
   const [reports = []] = data || []
   const ready = reports.filter((r) => r.status === 'ready').length
-  const inProgress = reports.filter((r) => ['submitted', 'processing'].includes(r.status)).length
-  const balance = wallet?.balance ?? 0
+  const awaiting = reports.filter((r) => r.payment_status === 'awaiting' && r.status !== 'cancelled')
+  const inProgress = reports.filter((r) => ['submitted', 'processing'].includes(r.status) && r.payment_status !== 'awaiting').length
 
   return (
     <div className="max-w-6xl mx-auto">
       <Alert>{error}</Alert>
+      {params.get('welcome') && (
+        <div className="mb-6 p-4 rounded-xl bg-softGreen border border-[#d1d9cf] text-darkGreen">
+          <p className="font-semibold">Welcome to Find My Schemes! Your mobile number is verified.</p>
+          <p className="text-sm mt-1">Request a Scheme Eligibility Report to get started.</p>
+        </div>
+      )}
+      {params.get('existing') && (
+        <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-100 text-blue-800 text-sm">
+          This mobile number already had an account, so you have been logged in to it.
+        </div>
+      )}
+      {awaiting.length > 0 && (
+        <Link to={`/dashboard/reports/${awaiting[0].id}`} className="mb-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm flex items-center justify-between gap-3 hover:bg-yellow-100">
+          <span><i className="fa-solid fa-clock mr-2" />{awaiting.length} request{awaiting.length > 1 ? 's are' : ' is'} awaiting payment. Work starts once payment is confirmed.</span>
+          <span className="font-semibold whitespace-nowrap">How to pay →</span>
+        </Link>
+      )}
       <div className="mb-8">
         <h2 className="text-2xl font-bold text-darkGreen">Welcome back, {firstName(profile?.full_name)}</h2>
         <p className="text-gray-600 mt-1">Here's an overview of your scheme opportunities and reports.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Link to="/dashboard/wallet"><Stat label="Wallet Balance" value={fmtINR(balance)} icon="fa-wallet" tint="bg-yellow-50 text-gold" /></Link>
         <Stat label="Scheme Reports" value={reports.length} icon="fa-file-invoice" tint="bg-softGreen text-darkGreen" />
+        <Stat label="Awaiting Payment" value={awaiting.length} icon="fa-clock" tint="bg-yellow-50 text-yellow-700" />
         <Stat label="In Progress" value={inProgress} icon="fa-spinner" tint="bg-blue-50 text-blue-600" />
         <Stat label="Reports Ready" value={ready} icon="fa-check-circle" tint="bg-green-50 text-green-600" />
       </div>
@@ -57,11 +75,10 @@ export default function Overview() {
           <p className="text-gray-300">Get a personalized assessment of schemes, subsidies, grants and incentives relevant to your business.</p>
         </div>
         <Link
-          to={balance >= pricing.reportPrice ? '/dashboard/request-report' : '/dashboard/wallet'}
+          to="/dashboard/request-report"
           className="relative z-10 whitespace-nowrap bg-rust hover:bg-rustHover text-white px-6 py-3 rounded text-sm font-semibold transition-colors shadow-md flex items-center gap-2"
         >
-          {balance >= pricing.reportPrice ? 'Get My Scheme Eligibility Report' : `Recharge Wallet (${fmtINR(pricing.reportPrice)} per report)`}{' '}
-          <i className="fa-solid fa-arrow-right" />
+          Get My Scheme Eligibility Report <i className="fa-solid fa-arrow-right" />
         </Link>
       </div>
 
@@ -96,7 +113,7 @@ export default function Overview() {
                       <td className="py-3 px-4 text-sm font-medium text-gray-900">#{r.report_code}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">{r.business_name}</td>
                       <td className="py-3 px-4 text-sm text-gray-600">{fmtDate(r.created_at)}</td>
-                      <td className="py-3 px-4 text-sm"><ReportStatusBadge status={r.status} /></td>
+                      <td className="py-3 px-4 text-sm"><ReportStatusBadge report={r} /></td>
                       <td className="py-3 px-4 text-sm">
                         <Link to={`/dashboard/reports/${r.id}`} className="text-darkGreen hover:text-rust font-medium transition-colors">View Details</Link>
                       </td>

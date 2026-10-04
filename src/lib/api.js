@@ -10,10 +10,9 @@ const unwrap = ({ data, error }) => {
 // Turn database error codes into plain messages
 export const friendlyError = (e) => {
   const m = e?.message || String(e)
-  if (m.includes('INSUFFICIENT_BALANCE')) return 'Not enough balance in the wallet. Please recharge to continue.'
-  if (m.includes('INVALID_PACK')) return 'That recharge pack is not available.'
-  if (m.includes('DUMMY_PAYMENTS_DISABLED')) return 'Test payments are switched off.'
   if (m.includes('NOT_SIGNED_IN')) return 'Please log in again.'
+  if (m.includes('DELIVERY_EMAIL_REQUIRED')) return 'Please add the email address the report should be sent to.'
+  if (m.includes('BUSINESS_NAME_REQUIRED')) return 'Please add the business name.'
   return m
 }
 
@@ -30,7 +29,7 @@ export const api = {
       .maybeSingle()
       .then(unwrap),
 
-  // Checks balance, deducts the report price and saves the form — all in the database
+  // Saves the form. Payment is made outside the platform afterwards.
   submitReportRequest: (inputs) => supabase.rpc('submit_report_request', { p_inputs: inputs }).then(unwrap),
 
   // Signed link to the PDF in the private 'reports' bucket (valid 1 hour)
@@ -41,10 +40,6 @@ export const api = {
     if (error) throw error
     return data.signedUrl
   },
-
-  // Wallet
-  listWalletTransactions: () =>
-    supabase.from('wallet_transactions').select('*').order('created_at', { ascending: false }).then(unwrap),
 
   // Applications
   listApplications: () =>
@@ -62,19 +57,22 @@ export const api = {
   listQueries: () =>
     supabase.from('queries').select('*').order('created_at', { ascending: false }).then(unwrap),
 
-  createQuery: ({ userId, subject, message }) =>
-    supabase.from('queries').insert({ user_id: userId, subject, message }).select().single().then(unwrap),
+  createQuery: ({ userId, subject, message, reportId }) =>
+    supabase.from('queries').insert({ user_id: userId, subject, message, report_id: reportId || null }).select().single().then(unwrap),
 
   // Profile
   updateProfile: (userId, fields) =>
     supabase.from('profiles').update(fields).eq('id', userId).select().single().then(unwrap),
 }
 
-// Database status → what the customer sees
-export const REPORT_STATUS = {
-  submitted: { label: 'Submitted', badge: 'In Progress' },
-  processing: { label: 'In Review', badge: 'In Progress' },
-  ready: { label: 'Report Ready', badge: 'Report Ready' },
-  failed: { label: 'Needs Attention', badge: 'Failed' },
-  refunded: { label: 'Refunded', badge: 'Refunded' },
+// What the customer sees for a request: payment first, then progress
+export const customerStatus = (r) => {
+  if (r.status === 'cancelled') return 'Cancelled'
+  if (r.status === 'ready') return 'Report Ready'
+  if (r.payment_status === 'awaiting') return 'Awaiting Payment'
+  if (r.payment_status === 'refunded') return 'Refunded'
+  return r.status === 'processing' ? 'In Review' : 'In Progress'
 }
+
+export const PAYMENT_LABEL = { awaiting: 'Awaiting payment', paid: 'Paid', waived: 'Waived', refunded: 'Refunded' }
+export const STATUS_LABEL = { submitted: 'Submitted', processing: 'In review', ready: 'Delivered', cancelled: 'Cancelled' }

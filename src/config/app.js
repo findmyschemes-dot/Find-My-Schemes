@@ -1,14 +1,9 @@
-// Front-end switches. Prices are NOT here on purpose — they live in the
-// database (app_settings / wallet_packs) so the browser can't change them.
+// Front-end settings. Prices and payment instructions are NOT here — they live in the
+// database (app_settings) and are edited in Admin → Settings.
 
-// Login is by MOBILE NUMBER + OTP.
-// OTP: 'dummy' (no SMS sent, code below — local testing only)
-//      | 'sms' (real SMS code — needs an SMS provider set up in Supabase)
-export const OTP_MODE = import.meta.env.VITE_OTP_MODE || 'dummy'
-export const DUMMY_OTP = '123456'
+// Phone.Email "Sign in with Phone" button (client ID from the Phone.Email dashboard)
+export const PHONE_EMAIL_CLIENT_ID = import.meta.env.VITE_PHONE_EMAIL_CLIENT_ID || '11408694035205611879'
+export const PHONE_EMAIL_SCRIPT = 'https://www.phone.email/sign_in_button_v1.js'
 
-// Payments: 'dummy' (test checkout) | 'razorpay'
-export const PAYMENT_MODE = import.meta.env.VITE_PAYMENT_MODE || 'dummy'
-
-export const OTP_LENGTH = 6
-export const OTP_RESEND_SECONDS = 30
+// Super admins (display only — the real check is in the database: super_admin_phones()).
+export const SUPER_ADMIN_PHONES = ['919121422554', '918500676890']

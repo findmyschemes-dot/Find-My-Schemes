@@ -10,10 +10,9 @@ import Alert from '../../components/Alert'
 
 const SEGMENTS = [
   ['all', 'All', () => true],
+  ['outstanding', 'Payment pending', (c) => Number(c.outstanding) > 0],
   ['paying', 'Paid at least once', (c) => Number(c.total_paid) > 0],
-  ['balance', 'Has wallet balance', (c) => Number(c.wallet_balance) > 0],
-  ['norecharge', 'Never recharged', (c) => Number(c.total_paid) === 0],
-  ['noreport', 'Paid, no report yet', (c) => Number(c.total_paid) > 0 && Number(c.reports_count) === 0],
+  ['norequest', 'No request yet', (c) => Number(c.reports_count) === 0],
 ]
 
 export default function Customers() {
@@ -35,7 +34,7 @@ export default function Customers() {
       {loading ? <Spinner /> : (
         <div className="card overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead><tr><Th>Customer</Th><Th>Mobile</Th><Th>Business</Th><Th>Signed up</Th><Th right>Wallet</Th><Th right>Total paid</Th><Th right>Reports</Th></tr></thead>
+            <thead><tr><Th>Customer</Th><Th>Mobile</Th><Th>Business</Th><Th>Signed up</Th><Th right>Requests</Th><Th right>Total paid</Th><Th right>Pending</Th></tr></thead>
             <tbody className="divide-y divide-gray-100">
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50">
@@ -43,12 +42,12 @@ export default function Customers() {
                     <Link to={`/admin/customers/${c.id}`} className="font-semibold text-darkGreen hover:text-rust">{c.full_name || '—'}</Link>
                     <div className="text-xs text-gray-500">{c.email}</div>
                   </td>
-                  <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{c.mobile || '—'}</td>
+                  <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{c.mobile ? `+${c.mobile}` : '—'}</td>
                   <td className="py-3 px-4 text-gray-700">{c.business_name || '—'}</td>
                   <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{fmtDate(c.created_at)}</td>
-                  <td className="py-3 px-4 text-right">{fmtINR(c.wallet_balance)}</td>
-                  <td className="py-3 px-4 text-right">{fmtINR(c.total_paid)}</td>
                   <td className="py-3 px-4 text-right">{c.reports_count}</td>
+                  <td className="py-3 px-4 text-right">{fmtINR(c.total_paid)}</td>
+                  <td className={`py-3 px-4 text-right ${Number(c.outstanding) > 0 ? 'text-yellow-700 font-semibold' : 'text-gray-400'}`}>{fmtINR(c.outstanding)}</td>
                 </tr>
               ))}
               {!filtered.length && <tr><td colSpan={7} className="p-8 text-center text-gray-500">No customers match.</td></tr>}

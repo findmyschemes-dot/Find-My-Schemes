@@ -1,58 +1,40 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAdmin } from '../AdminAuth'
-import { sendAdminOtp, verifyAdminOtp, prettyPhone } from '../loginFlow'
-import OtpStep from '../../components/OtpStep'
+import PhoneEmailButton from '../../components/PhoneEmailButton'
 import Alert from '../../components/Alert'
+import { completePhoneLogin, saveIntent } from '../../lib/phoneAuth'
 import { isSupabaseConfigured } from '../../lib/supabase'
 
 export default function AdminLogin() {
-  const { session, isAdmin, refresh } = useAdmin()
+  const { session, isAdmin, loading, refresh, signOut } = useAdmin()
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const next = params.get('next') || '/admin'
-  // Pre-filled when coming from the "Admin Panel" button in the customer menu
-  const [phone, setPhone] = useState(() => {
-    const d = (params.get('phone') || '').replace(/\D/g, '')
-    return d.length === 12 && d.startsWith('91') ? d.slice(2) : d
-  })
-  const [step, setStep] = useState('phone')
-  const [otp, setOtp] = useState({})
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (session && isAdmin) navigate(next, { replace: true })
-  }, [session, isAdmin, navigate, next])
+    if (!loading && session && isAdmin) navigate(next, { replace: true })
+  }, [loading, session, isAdmin, navigate, next])
 
-  const send = async (e) => {
-    e?.preventDefault()
+  useEffect(() => {
+    saveIntent({ mode: 'admin', next })
+  }, [next])
+
+  const onVerified = async (userJsonUrl) => {
     setError('')
     setBusy(true)
-    try {
-      const res = await sendAdminOtp(phone)
-      if (!res.ok) return setError(res.error)
-      setOtp(res)
-      setStep('otp')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const verify = async (code) => {
-    setError('')
-    setBusy(true)
-    const res = await verifyAdminOtp(otp.digits, code, otp.mode)
+    const res = await completePhoneLogin({ userJsonUrl, mode: 'admin' })
     if (!res.ok) {
       setBusy(false)
       return setError(res.error)
     }
     await refresh()
-    setBusy(false)
     navigate(next, { replace: true })
   }
+
+  const loggedInNotAdmin = !loading && session && !isAdmin
 
   return (
     <div className="min-h-screen bg-darkerGreen flex items-center justify-center p-4">
@@ -65,40 +47,19 @@ export default function AdminLogin() {
           </div>
         </div>
         {!isSupabaseConfigured && <Alert>Supabase is not connected (.env).</Alert>}
-        {step === 'phone' ? (
-          <form onSubmit={send} className="space-y-4">
-            <h1 className="text-lg font-bold text-gray-900 text-center">Admin login</h1>
-            <p className="text-sm text-gray-500 text-center">Only authorised mobile numbers can sign in.</p>
-            <Alert>{error}</Alert>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mobile number</label>
-              <div className="flex">
-                <span className="px-3 flex items-center bg-gray-50 border border-r-0 border-gray-300 rounded-l text-sm text-gray-600">+91</span>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  autoFocus
-                  required
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="98765 43210"
-                  className="input rounded-l-none"
-                />
-              </div>
-              <p className="text-xs text-gray-400 mt-1">For another country, type the full number with its code.</p>
-            </div>
-            <button disabled={busy} className="btn-primary w-full py-3">{busy ? 'Checking…' : 'Send OTP'}</button>
-          </form>
+        <h1 className="text-lg font-bold text-gray-900 text-center">Admin login</h1>
+        <p className="text-sm text-gray-500 text-center mb-4">Only authorised mobile numbers can sign in.</p>
+        <Alert>{error}</Alert>
+        {loggedInNotAdmin ? (
+          <div className="text-center text-sm space-y-3">
+            <p className="text-gray-700">The account signed in on this browser is not an admin.</p>
+            <button onClick={signOut} className="btn-outline px-4 py-2">Log out and use an admin number</button>
+            <div><Link to="/dashboard" className="text-darkGreen hover:underline">Back to my dashboard</Link></div>
+          </div>
+        ) : busy ? (
+          <p className="text-center text-sm text-gray-600 py-4"><i className="fa-solid fa-circle-notch fa-spin mr-2" />Checking…</p>
         ) : (
-          <OtpStep
-            sentTo={prettyPhone(otp.digits)}
-            onVerify={verify}
-            onResend={send}
-            onBack={() => { setStep('phone'); setError('') }}
-            error={error}
-            busy={busy}
-            testMode={otp.mode !== 'sms'}
-          />
+          <PhoneEmailButton onVerified={onVerified} />
         )}
       </div>
     </div>

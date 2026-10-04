@@ -21,8 +21,8 @@ const REPORT_FEATURES = [
 ]
 
 const STEPS = [
-  { icon: 'fa-solid fa-user-check', title: 'Sign Up with OTP', text: 'Create an account in a minute — no password needed.' },
-  { icon: 'fa-solid fa-wallet', title: 'Recharge Wallet', text: <>₹499 per report.<br />No subscription.</> },
+  { icon: 'fa-solid fa-user-check', title: 'Sign Up', text: 'Verify the mobile number with a one-time code. No password needed.' },
+  { icon: 'fa-regular fa-credit-card', title: 'Pay ₹499', text: <>By UPI or bank transfer.<br />No subscription.</> },
   { icon: 'fa-regular fa-file-lines', title: <>Tell Us About<br />Your Business</>, text: 'Fill in your business and project details.' },
   { icon: 'fa-regular fa-envelope', title: 'Get Your Report', text: 'Your custom-curated report arrives in your email within 24 hours.' },
 ]

@@ -7,14 +7,14 @@ const NAV = [
   { to: '/admin', label: 'Analytics', icon: 'fa-chart-line', end: true },
   { to: '/admin/requests', label: 'Report Requests', icon: 'fa-inbox' },
   { to: '/admin/customers', label: 'Customers', icon: 'fa-users' },
-  { to: '/admin/payments', label: 'Payments & Wallet', icon: 'fa-indian-rupee-sign' },
+  { to: '/admin/payments', label: 'Payments', icon: 'fa-indian-rupee-sign' },
   { to: '/admin/queries', label: 'Queries', icon: 'fa-headset' },
   { to: '/admin/applications', label: 'Applications', icon: 'fa-clipboard-list' },
   { to: '/admin/settings', label: 'Settings', icon: 'fa-gear' },
 ]
 
 export default function AdminLayout() {
-  const { phone, signOut, settings } = useAdmin()
+  const { phone, signOut } = useAdmin()
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
   const navigate = useNavigate()
@@ -22,7 +22,6 @@ export default function AdminLayout() {
   useEffect(() => {
     main.current?.scrollTo(0, 0)
   }, [pathname])
-  const dummy = (settings.admin_otp_mode ?? 'dummy') === 'dummy' || (settings.payment_mode ?? 'dummy') === 'dummy'
 
   const logout = async () => {
     await signOut()
@@ -51,7 +50,7 @@ export default function AdminLayout() {
           ))}
         </nav>
         <div className="p-4 border-t border-white/10 text-xs">
-          <div className="text-gray-400 mb-2"><i className="fa-solid fa-mobile-screen mr-1" /> {phone ? prettyPhone(phone.replace(/\D/g, '')) : 'Admin'}</div>
+          <div className="text-gray-400 mb-2"><i className="fa-solid fa-mobile-screen mr-1" /> {phone ? prettyPhone(String(phone).replace(/\D/g, '')) : 'Admin'}</div>
           <button onClick={logout} className="text-gray-300 hover:text-white"><i className="fa-solid fa-sign-out-alt mr-2" />Logout</button>
         </div>
       </aside>
@@ -63,11 +62,6 @@ export default function AdminLayout() {
             <span className="font-serif font-bold text-darkGreen">Find My Schemes · Admin</span>
           </div>
           <div className="flex items-center gap-3">
-            {dummy && (
-              <span className="hidden sm:inline text-[11px] font-semibold bg-yellow-100 text-yellow-800 px-2 py-1 rounded" title="Admin OTP and/or payments are in test mode">
-                TEST MODE
-              </span>
-            )}
             <Link to="/" className="text-xs text-gray-500 hover:text-darkGreen">View website <i className="fa-solid fa-arrow-up-right-from-square ml-1" /></Link>
           </div>
         </header>

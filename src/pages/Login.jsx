@@ -1,12 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import AuthLayout from '../components/AuthLayout'
 import Alert from '../components/Alert'
-import OtpStep from '../components/OtpStep'
-import PhoneInput from '../components/PhoneInput'
+import PhoneEmailButton from '../components/PhoneEmailButton'
 import { useAuth } from '../context/AuthContext'
-import { sendOtp, verifyOtp, OTP_IS_TEST } from '../lib/otp'
-import { prettyPhone } from '../lib/phone'
+import { completePhoneLogin, saveIntent, savePending } from '../lib/phoneAuth'
 
 export default function Login() {
   const { user } = useAuth()
@@ -14,72 +12,42 @@ export default function Login() {
   const [params] = useSearchParams()
   const redirect = params.get('redirect')
   const target = redirect ? `/dashboard/${redirect}` : '/dashboard'
-
-  const [step, setStep] = useState('mobile') // mobile | otp
-  const [mobile, setMobile] = useState(params.get('mobile') || '')
-  const [digits, setDigits] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (user) navigate(target, { replace: true })
-  }, [user, navigate, target])
+    if (user && !busy) navigate(target, { replace: true })
+  }, [user, busy, navigate, target])
 
-  const request = async (e) => {
-    e?.preventDefault()
+  // In case Phone.Email finishes on the Redirect URL instead of calling back here
+  useEffect(() => {
+    saveIntent({ mode: 'login', next: target })
+  }, [target])
+
+  const onVerified = async (userJsonUrl) => {
     setError('')
     setBusy(true)
-    const res = await sendOtp({ mobile, mode: 'login' })
+    const res = await completePhoneLogin({ userJsonUrl, mode: 'login' })
+    if (res.ok) return navigate(target, { replace: true })
     setBusy(false)
-    if (!res.ok) return setError(res.error)
-    setDigits(res.digits)
-    setStep('otp')
+    if (res.code === 'not_registered') {
+      savePending({ url: userJsonUrl, phone: res.phone })
+      return navigate(`/signup?verified=1${redirect ? `&redirect=${redirect}` : ''}`)
+    }
+    setError(res.error)
   }
-
-  const verify = async (code) => {
-    setError('')
-    setBusy(true)
-    const res = await verifyOtp({ digits, code, mode: 'login' })
-    setBusy(false)
-    if (!res.ok) return setError(res.error)
-    navigate(target, { replace: true })
-  }
-
-  const notFound = /sign up first/i.test(error)
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Log in with the mobile number used to sign up. We'll send a one-time code.">
-      {step === 'mobile' ? (
-        <>
-          <Alert>{error}</Alert>
-          {notFound && (
-            <p className="-mt-2 mb-4 text-center text-sm">
-              <Link to={`/signup?mobile=${encodeURIComponent(mobile)}${redirect ? `&redirect=${redirect}` : ''}`} className="text-rust font-semibold hover:underline">
-                Create an account with this number →
-              </Link>
-            </p>
-          )}
-          <form onSubmit={request} className="space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mobile Number</label>
-              <PhoneInput value={mobile} onChange={setMobile} autoFocus />
-            </div>
-            <button type="submit" disabled={busy} className="btn-primary w-full py-3">
-              {busy ? 'Sending code…' : 'Send OTP'}
-            </button>
-          </form>
-        </>
+    <AuthLayout title="Welcome back" subtitle="Log in with the mobile number used to sign up. Verify it with a one-time code.">
+      <Alert>{error}</Alert>
+      {busy ? (
+        <p className="text-center text-sm text-gray-600 py-4"><i className="fa-solid fa-circle-notch fa-spin mr-2" />Signing in…</p>
       ) : (
-        <OtpStep
-          sentTo={prettyPhone(digits)}
-          onVerify={verify}
-          onResend={request}
-          onBack={() => { setStep('mobile'); setError('') }}
-          error={error}
-          busy={busy}
-          testMode={OTP_IS_TEST}
-        />
+        <PhoneEmailButton onVerified={onVerified} />
       )}
+      <p className="text-xs text-gray-500 text-center mt-4">
+        A secure window opens to verify the mobile number by OTP.
+      </p>
       <div className="mt-8 text-center text-sm text-gray-600">
         Don't have an account?{' '}
         <Link to={`/signup${redirect ? `?redirect=${redirect}` : ''}`} className="text-darkGreen font-semibold hover:underline">

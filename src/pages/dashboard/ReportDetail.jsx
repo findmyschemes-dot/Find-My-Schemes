@@ -1,42 +1,40 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { api, friendlyError, REPORT_STATUS } from '../../lib/api'
+import { api, friendlyError, PAYMENT_LABEL } from '../../lib/api'
 import { useAsync } from '../../lib/useAsync'
 import { fmtDate, fmtINR } from '../../lib/format'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { ReportStatusBadge } from '../../components/StatusBadge'
+import PaymentInstructions from '../../components/PaymentInstructions'
 
 const levelStyle = (level) => (level === 'State Govt' ? 'text-purple-600 bg-purple-50' : 'text-blue-600 bg-blue-50')
 
-const STEPS = [
-  { key: 'submitted', label: 'Submitted' },
-  { key: 'processing', label: 'In Review' },
-  { key: 'ready', label: 'Report Emailed' },
-]
-
-function Timeline({ status, events }) {
-  const idx = STEPS.findIndex((s) => s.key === status)
-  const when = (key) => events?.find((e) => e.status === key)?.created_at
+// Submitted → Payment confirmed → In review → Report emailed
+function Timeline({ report, events }) {
+  const paidOk = ['paid', 'waived'].includes(report.payment_status)
+  const steps = [
+    { label: 'Submitted', done: true, at: report.created_at },
+    { label: 'Payment Confirmed', done: paidOk, at: report.paid_at || events?.find((e) => e.kind === 'payment' && e.status === 'waived')?.created_at },
+    { label: 'In Review', done: ['processing', 'ready'].includes(report.status), at: events?.find((e) => e.kind !== 'payment' && e.status === 'processing')?.created_at },
+    { label: 'Report Emailed', done: report.status === 'ready', at: report.delivered_at },
+  ]
   return (
     <div className="card p-6 mb-6">
       <div className="flex items-center">
-        {STEPS.map((s, i) => {
-          const done = idx >= i || (status === 'ready' && i <= 2)
-          return (
-            <div key={s.key} className="flex-1 flex items-center">
-              <div className="flex flex-col items-center text-center min-w-[80px]">
-                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm ${done ? 'bg-darkGreen text-white' : 'bg-gray-100 text-gray-400'}`}>
-                  {done ? <i className="fa-solid fa-check" /> : i + 1}
-                </div>
-                <span className={`text-xs mt-2 font-medium ${done ? 'text-darkGreen' : 'text-gray-400'}`}>{s.label}</span>
-                {when(s.key) && <span className="text-[10px] text-gray-400">{fmtDate(when(s.key))}</span>}
+        {steps.map((s, i) => (
+          <div key={s.label} className="flex-1 flex items-center">
+            <div className="flex flex-col items-center text-center min-w-[72px]">
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm ${s.done ? 'bg-darkGreen text-white' : 'bg-gray-100 text-gray-400'}`}>
+                {s.done ? <i className="fa-solid fa-check" /> : i + 1}
               </div>
-              {i < STEPS.length - 1 && <div className={`flex-1 h-0.5 mx-1 ${idx > i ? 'bg-darkGreen' : 'bg-gray-200'}`} />}
+              <span className={`text-xs mt-2 font-medium ${s.done ? 'text-darkGreen' : 'text-gray-400'}`}>{s.label}</span>
+              {s.done && s.at && <span className="text-[10px] text-gray-400">{fmtDate(s.at)}</span>}
             </div>
-          )
-        })}
+            {i < steps.length - 1 && <div className={`flex-1 h-0.5 mx-1 ${steps[i + 1].done ? 'bg-darkGreen' : 'bg-gray-200'}`} />}
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -125,10 +123,10 @@ export default function ReportDetail() {
         <div>
           <div className="flex items-center gap-3 mb-1 flex-wrap">
             <h2 className="font-serif text-2xl font-bold text-darkGreen">{report.business_name}</h2>
-            <ReportStatusBadge status={report.status} />
+            <ReportStatusBadge report={report} />
           </div>
           <p className="text-gray-500 text-sm">
-            Request ID: #{report.report_code} • Submitted: {fmtDate(report.created_at)} • {report.state} • Paid {fmtINR(report.price_charged)}
+            Request ID: #{report.report_code} • Submitted: {fmtDate(report.created_at)}{report.state ? ` • ${report.state}` : ''} • {fmtINR(report.amount_due)} ({PAYMENT_LABEL[report.payment_status]})
           </p>
         </div>
         {ready && report.report_file_path && (
@@ -140,22 +138,27 @@ export default function ReportDetail() {
 
       <Alert>{actionError}</Alert>
 
-      {report.status === 'refunded' || report.status === 'failed' ? (
+      {report.status === 'cancelled' ? (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6 text-gray-700">
-          <h3 className="font-bold mb-1">{REPORT_STATUS[report.status].label}</h3>
+          <h3 className="font-bold mb-1">Request cancelled</h3>
           <p className="text-sm">{report.status_note || 'Please contact support from My Queries.'}</p>
+          {report.payment_status === 'refunded' && <p className="text-sm mt-1">The payment has been refunded.</p>}
         </div>
       ) : (
-        <Timeline status={report.status} events={events} />
+        <Timeline report={report} events={events} />
       )}
 
-      {!ready && !['refunded', 'failed'].includes(report.status) && (
+      {report.status !== 'cancelled' && report.payment_status === 'awaiting' && (
+        <div className="mb-6"><PaymentInstructions report={report} /></div>
+      )}
+
+      {!ready && report.status !== 'cancelled' && report.payment_status !== 'awaiting' && (
         <div className="bg-blue-50 border border-blue-100 rounded-xl p-8 text-center text-blue-800 mb-6">
           <i className="fa-solid fa-clock-rotate-left text-4xl mb-3 opacity-80" />
           <h3 className="text-lg font-bold mb-1">Report Analysis In Progress</h3>
           <p className="max-w-md mx-auto text-sm opacity-90">
             {report.status_note ||
-              `Our research team is analysing this business profile against government schemes. The report will be emailed to ${report.delivery_email}.`}
+              `Payment confirmed. Our research team is analysing this business profile against government schemes. The report will be emailed to ${report.delivery_email}.`}
           </p>
         </div>
       )}

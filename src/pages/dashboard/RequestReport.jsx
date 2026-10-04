@@ -62,9 +62,9 @@ function Chips({ options, value, onToggle }) {
 }
 
 export default function RequestReport() {
-  const { profile, user, wallet, pricing, refreshWallet } = useAuth()
+  const { profile, pricing } = useAuth()
   const navigate = useNavigate()
-  // Keep a draft so nothing is lost while the person goes to recharge
+  // Keep a draft so nothing is lost if the page is left by mistake
   const DRAFT_KEY = 'fms-report-draft'
   const [form, setForm] = useState(() => {
     const base = emptyForm({ ...profile, email: profile?.email || '' })
@@ -81,9 +81,7 @@ export default function RequestReport() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const balance = wallet?.balance ?? 0
   const price = pricing.reportPrice
-  const enough = balance >= price
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
   const toggle = (k) => (v) => {
@@ -97,16 +95,13 @@ export default function RequestReport() {
     setError('')
     if (!form.purpose.length) return setError('Please choose at least one purpose in section 4.')
     if (form.description.trim().length < 30) return setError('Please describe the business and plans in at least 30 characters.')
-    if (!enough) return setError(`Not enough balance. A report costs ${fmtINR(price)}; the wallet has ${fmtINR(balance)}.`)
     setBusy(true)
     try {
       const report = await api.submitReportRequest({ ...form, form_version: FORM_VERSION })
       try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
-      await refreshWallet()
       navigate('/dashboard/report-success', { state: { report } })
     } catch (err) {
       setError(friendlyError(err))
-      refreshWallet()
     } finally {
       setBusy(false)
     }
@@ -120,16 +115,6 @@ export default function RequestReport() {
           Tell us about the business. Our team prepares the report and emails it within {pricing.slaHours} hours.
         </p>
       </div>
-
-      {!enough && (
-        <div className="m-6 mb-0 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="text-sm">
-            <p className="font-semibold">Wallet balance is {fmtINR(balance)}</p>
-            <p>A report costs {fmtINR(price)}. Recharge to submit this form.</p>
-          </div>
-          <Link to="/dashboard/wallet" className="btn-primary px-5 py-2 text-sm text-center">Recharge Wallet</Link>
-        </div>
-      )}
 
       <form onSubmit={onSubmit} className="p-6 sm:p-8">
         <Section n={1} title="Business Details">
@@ -219,15 +204,13 @@ export default function RequestReport() {
         </Section>
 
         <div className="mb-8">
-          <h3 className="text-lg font-semibold border-b pb-2 mb-4">6. Payment from Wallet</h3>
+          <h3 className="text-lg font-semibold border-b pb-2 mb-4">6. Payment</h3>
           <div className="bg-gray-50 rounded p-4 border border-gray-200 text-sm space-y-2">
-            <div className="flex justify-between text-gray-700"><span>Wallet balance</span><span>{fmtINR(balance)}</span></div>
-            <div className="flex justify-between text-gray-700"><span>Scheme Eligibility Report</span><span>− {fmtINR(price)}</span></div>
-            <hr className="border-gray-200" />
-            <div className={`flex justify-between font-bold ${enough ? 'text-gray-900' : 'text-red-600'}`}>
-              <span>Balance after submitting</span>
-              <span>{enough ? fmtINR(balance - price) : 'Not enough balance'}</span>
-            </div>
+            <div className="flex justify-between font-bold text-gray-900"><span>Scheme Eligibility Report</span><span>{fmtINR(price)}</span></div>
+            <p className="text-gray-600">
+              No online payment here. After submitting, the payment details (UPI / bank transfer) and the Request ID to mention are shown.
+              Work starts once the payment is confirmed.
+            </p>
           </div>
         </div>
 
@@ -235,13 +218,9 @@ export default function RequestReport() {
 
         <div className="flex justify-end gap-3">
           <Link to="/dashboard" className="px-6 py-2.5 text-gray-600 font-medium hover:text-gray-900 transition-colors">Cancel</Link>
-          {enough ? (
-            <button type="submit" disabled={busy} className="btn-primary px-8 py-2.5">
-              {busy ? 'Submitting…' : `Submit & Pay ${fmtINR(price)} from Wallet`}
-            </button>
-          ) : (
-            <Link to="/dashboard/wallet" className="btn-primary px-8 py-2.5">Recharge Wallet to Continue</Link>
-          )}
+          <button type="submit" disabled={busy} className="btn-primary px-8 py-2.5">
+            {busy ? 'Submitting…' : 'Submit Request'}
+          </button>
         </div>
       </form>
     </div>

@@ -1,17 +1,18 @@
 -- =====================================================================
--- Find My Schemes — Supabase schema  (v2: OTP auth + wallet + report requests)
+-- Find My Schemes — Supabase schema (v3)
+--   • Login: mobile number verified by Phone.Email (Edge Function `phone-login`)
+--   • Payments: taken OUTSIDE the platform; admins mark each report Paid
+--   • Admin panel: only mobile numbers in `admin_phones`
 --
--- Run once on a NEW project: Supabase → SQL Editor → New query → paste → Run.
--- Safe to re-run (uses IF NOT EXISTS / OR REPLACE / DROP POLICY IF EXISTS).
---
--- Money rules live in the DATABASE, not the browser, so nobody can edit the
--- page to pay ₹0. Change prices in `app_settings` / `wallet_packs` (section 1).
+-- Fresh project:  SQL Editor → paste this whole file → Run.
+-- Existing v1/v2 test project:  run reset.sql first, then this file.
+-- Safe to re-run.
 -- =====================================================================
 
 create extension if not exists pgcrypto;
 
 -- ---------------------------------------------------------------------
--- 1. SETTINGS & PRICING  (single source of truth)
+-- 1. SETTINGS
 -- ---------------------------------------------------------------------
 create table if not exists public.app_settings (
   key         text primary key,
@@ -21,29 +22,17 @@ create table if not exists public.app_settings (
 );
 
 insert into public.app_settings (key, value, description) values
-  ('report_price',    '499',        'Wallet amount (INR) deducted for one report'),
-  ('payment_mode',    '"dummy"',    'dummy | razorpay — dummy lets the test checkout credit the wallet'),
-  ('generation_mode', '"manual"',   'manual = team emails the report; ai = backend AI generates it'),
-  ('delivery_sla_hours', '24',      'Promised delivery time shown to customers')
+  ('report_price',       '499',      'Price (INR) of one scheme report — shown to customers and recorded on each request'),
+  ('delivery_sla_hours', '24',       'Delivery promise in hours, counted from payment confirmation'),
+  ('generation_mode',    '"manual"', 'manual = team prepares the report; ai = backend AI (later)'),
+  ('payment_instructions',
+   to_jsonb('Pay ₹499 by UPI to yourname@upi or by bank transfer (A/c 000000000000, IFSC ABCD0000000, Find My Schemes). Mention your Request ID in the payment note. We start as soon as the payment is confirmed.'::text),
+   'Shown to customers after they submit a request. Edit in Admin → Settings.')
 on conflict (key) do nothing;
 
-create table if not exists public.wallet_packs (
-  id          text primary key,                 -- e.g. 'starter'
-  name        text not null,
-  amount      numeric(12,2) not null check (amount > 0),   -- what the customer pays
-  bonus       numeric(12,2) not null default 0 check (bonus >= 0), -- extra credit (future offers)
-  description text,
-  sort_order  int not null default 0,
-  active      boolean not null default true
-);
+-- settings from older versions that no longer apply
+delete from public.app_settings where key in ('payment_mode', 'admin_otp_mode');
 
-insert into public.wallet_packs (id, name, amount, bonus, description, sort_order) values
-  ('starter', 'Starter', 499,  0, '1 scheme report',  1),
-  ('growth',  'Growth',  1499, 0, '3 scheme reports', 2),
-  ('pro',     'Pro',     2499, 0, '5 scheme reports', 3)
-on conflict (id) do nothing;
-
--- helper to read a numeric setting
 create or replace function public.setting_num(p_key text)
 returns numeric language sql stable security definer set search_path = '' as $$
   select (value #>> '{}')::numeric from public.app_settings where key = p_key
@@ -54,44 +43,83 @@ returns text language sql stable security definer set search_path = '' as $$
 $$;
 
 -- ---------------------------------------------------------------------
--- 2. PROFILES + WALLETS  (created automatically at sign-up)
+-- 2. ADMIN MOBILE NUMBERS (digits with country code, e.g. 919876543210)
+-- ---------------------------------------------------------------------
+create table if not exists public.admin_phones (
+  phone      text primary key check (phone ~ '^[0-9]{10,15}$'),
+  name       text,
+  active     boolean not null default true,
+  created_at timestamptz not null default now()
+);
+-- SUPER ADMINS — hard-coded. Always admin; cannot be switched off or removed (from the panel or SQL).
+-- To change this list, edit it here and in supabase/functions/phone-login/index.ts, then re-run.
+create or replace function public.super_admin_phones()
+returns text[] language sql immutable as $$
+  select array['919121422554', '918500676890']
+$$;
+
+insert into public.admin_phones (phone, name, active)
+select p, 'Super admin', true from unnest(public.super_admin_phones()) as p
+on conflict (phone) do update set active = true;
+
+-- the old placeholder number is not needed any more
+delete from public.admin_phones where phone = '919999999999' and name = 'Placeholder admin';
+
+create or replace function public.protect_super_admins()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if tg_op = 'DELETE' and old.phone = any(public.super_admin_phones()) then
+    raise exception 'SUPER_ADMIN_LOCKED';
+  end if;
+  if tg_op = 'UPDATE' and old.phone = any(public.super_admin_phones())
+     and (new.phone <> old.phone or new.active is not true) then
+    raise exception 'SUPER_ADMIN_LOCKED';
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+drop trigger if exists admin_phones_protect_super on public.admin_phones;
+create trigger admin_phones_protect_super
+  before update or delete on public.admin_phones
+  for each row execute function public.protect_super_admins();
+
+-- ---------------------------------------------------------------------
+-- 3. PROFILES (one per account; created automatically)
 -- ---------------------------------------------------------------------
 create table if not exists public.profiles (
-  id             uuid primary key references auth.users (id) on delete cascade,
-  email          text,
-  full_name      text,
-  mobile         text,
-  business_name  text,
-  role           text not null default 'customer' check (role in ('customer', 'admin')),
-  mobile_verified boolean not null default false,
-  created_at     timestamptz not null default now(),
-  updated_at     timestamptz not null default now()
+  id            uuid primary key references auth.users (id) on delete cascade,
+  email         text,           -- report-delivery email (NOT the login)
+  full_name     text,
+  mobile        text,           -- verified mobile = the login, digits e.g. 919876543210
+  business_name text,
+  role          text not null default 'customer' check (role in ('customer', 'admin')),
+  is_internal   boolean not null default false,   -- admin accounts: hidden from customer analytics
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
 );
+alter table public.profiles add column if not exists is_internal boolean not null default false;
 
-create table if not exists public.wallets (
-  user_id    uuid primary key references auth.users (id) on delete cascade,
-  balance    numeric(12,2) not null default 0 check (balance >= 0),
-  updated_at timestamptz not null default now()
-);
+create unique index if not exists profiles_mobile_uidx on public.profiles (mobile) where mobile is not null;
 
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   v_meta   jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
-  v_mobile text  := nullif(regexp_replace(coalesce(v_meta ->> 'mobile', new.phone, ''), '\D', '', 'g'), '');
+  v_mobile text  := nullif(regexp_replace(coalesce(new.raw_app_meta_data ->> 'verified_phone',
+                                                   v_meta ->> 'mobile', new.phone, ''), '\D', '', 'g'), '');
 begin
   if v_mobile ~ '^[6-9][0-9]{9}$' then v_mobile := '91' || v_mobile; end if;
-  insert into public.profiles (id, email, full_name, mobile, business_name)
+  insert into public.profiles (id, email, full_name, mobile, business_name, is_internal)
   values (
     new.id,
-    lower(nullif(trim(v_meta ->> 'contact_email'), '')),   -- report-delivery email (login is by mobile)
-    v_meta ->> 'full_name',
+    lower(nullif(trim(v_meta ->> 'contact_email'), '')),
+    nullif(trim(v_meta ->> 'full_name'), ''),
     v_mobile,
-    v_meta ->> 'business_name'
+    nullif(trim(v_meta ->> 'business_name'), ''),
+    v_mobile = any(public.super_admin_phones())
+      or exists (select 1 from public.admin_phones where phone = v_mobile)
   )
   on conflict (id) do nothing;
-
-  insert into public.wallets (user_id) values (new.id) on conflict (user_id) do nothing;
   return new;
 end;
 $$;
@@ -102,65 +130,49 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ---------------------------------------------------------------------
--- 3. PAYMENTS (one row per recharge attempt, any gateway)
--- ---------------------------------------------------------------------
-create table if not exists public.payments (
-  id                 uuid primary key default gen_random_uuid(),
-  payment_code       text unique not null default ('PAY-' || upper(substr(md5(random()::text), 1, 8))),
-  user_id            uuid not null references auth.users (id) on delete cascade,
-  pack_id            text references public.wallet_packs (id),
-  amount             numeric(12,2) not null check (amount > 0),   -- charged
-  credit_amount      numeric(12,2) not null check (credit_amount > 0), -- added to wallet (amount + bonus)
-  currency           text not null default 'INR',
-  gateway            text not null default 'dummy',               -- dummy | razorpay | cashfree
-  gateway_order_id   text,
-  gateway_payment_id text,
-  status             text not null default 'created' check (status in ('created', 'paid', 'failed', 'refunded')),
-  gateway_response   jsonb,
-  created_at         timestamptz not null default now(),
-  paid_at            timestamptz
-);
-create index if not exists payments_user_id_idx on public.payments (user_id);
-create index if not exists payments_pack_id_idx on public.payments (pack_id);
-create unique index if not exists payments_gateway_payment_uidx
-  on public.payments (gateway, gateway_payment_id) where gateway_payment_id is not null;
-
--- ---------------------------------------------------------------------
--- 4. REPORTS  (= a customer's report request and, later, its result)
---    Lifecycle: submitted → processing → ready   (or failed → refunded)
+-- 4. REPORTS (= a customer's request, its manual payment, and the result)
+--    status:          submitted → processing → ready      (or cancelled)
+--    payment_status:  awaiting  → paid                     (or waived / refunded)
 -- ---------------------------------------------------------------------
 create table if not exists public.reports (
-  id               uuid primary key default gen_random_uuid(),
-  report_code      text unique not null default ('RPT-' || upper(substr(md5(random()::text), 1, 6))),
-  user_id          uuid not null references auth.users (id) on delete cascade,
+  id                uuid primary key default gen_random_uuid(),
+  report_code       text unique not null default ('RPT-' || upper(substr(md5(random()::text), 1, 6))),
+  user_id           uuid not null references auth.users (id) on delete cascade,
 
   -- what the customer submitted
-  form_version     int  not null default 1,
-  inputs           jsonb not null,                 -- every form answer, as submitted
-  business_name    text not null,                  -- copied out of inputs for lists/search
-  industry         text,
-  state            text,
-  delivery_email   text not null,
+  form_version      int  not null default 1,
+  inputs            jsonb not null,
+  business_name     text not null,
+  industry          text,
+  state             text,
+  delivery_email    text not null,
 
-  -- money
-  price_charged    numeric(12,2) not null,
+  -- manual payment (outside the platform)
+  amount_due        numeric(12,2) not null,
+  payment_status    text not null default 'awaiting'
+                    check (payment_status in ('awaiting', 'paid', 'waived', 'refunded')),
+  amount_paid       numeric(12,2),
+  payment_method    text,            -- UPI / Bank transfer / Cash / Card / Other
+  payment_reference text,            -- UTR / transaction ID
+  payment_note      text,
+  paid_at           timestamptz,
 
   -- progress
-  status           text not null default 'submitted'
-                   check (status in ('submitted', 'processing', 'ready', 'failed', 'refunded')),
-  generation_mode  text not null default 'manual' check (generation_mode in ('manual', 'ai')),
-  assigned_to      uuid references auth.users (id),   -- team member handling it (manual mode)
-  status_note      text,                               -- message shown to the customer
+  status            text not null default 'submitted'
+                    check (status in ('submitted', 'processing', 'ready', 'cancelled')),
+  generation_mode   text not null default 'manual' check (generation_mode in ('manual', 'ai')),
+  assigned_to       uuid references auth.users (id),
+  status_note       text,
 
-  -- result (filled by the team today, by AI later)
-  summary          text,
-  schemes_found    int,
+  -- result
+  summary           text,
+  schemes_found     int,
   potential_benefit text,
-  high_matches     int,
-  report_file_path text,       -- Storage path '<user_id>/<report_code>.pdf'  or a full https URL
-  delivered_at     timestamptz,
+  high_matches      int,
+  report_file_path  text,
+  delivered_at      timestamptz,
 
-  -- AI bookkeeping (unused until AI goes live)
+  -- AI bookkeeping (later)
   ai_model          text,
   ai_prompt_version text,
   ai_input_tokens   int,
@@ -169,122 +181,108 @@ create table if not exists public.reports (
   ai_error          text,
   attempts          int not null default 0,
 
-  created_at       timestamptz not null default now(),
-  updated_at       timestamptz not null default now()
-);
-create index if not exists reports_user_id_idx  on public.reports (user_id);
-create index if not exists reports_status_idx   on public.reports (status, created_at);
-create index if not exists reports_assigned_idx on public.reports (assigned_to);
-
--- ---------------------------------------------------------------------
--- 5. WALLET LEDGER  (append-only history of every rupee in or out)
--- ---------------------------------------------------------------------
-create table if not exists public.wallet_transactions (
-  id            uuid primary key default gen_random_uuid(),
-  txn_code      text unique not null default ('TXN-' || upper(substr(md5(random()::text), 1, 8))),
-  user_id       uuid not null references auth.users (id) on delete cascade,
-  direction     text not null check (direction in ('credit', 'debit')),
-  amount        numeric(12,2) not null check (amount > 0),
-  balance_after numeric(12,2) not null check (balance_after >= 0),
-  reason        text not null check (reason in ('recharge', 'report', 'refund', 'adjustment')),
-  payment_id    uuid references public.payments (id),
-  report_id     uuid references public.reports (id) on delete set null,
-  note          text,
-  created_at    timestamptz not null default now()
-);
-create index if not exists wallet_txn_user_idx    on public.wallet_transactions (user_id, created_at desc);
-create index if not exists wallet_txn_payment_idx on public.wallet_transactions (payment_id);
-create index if not exists wallet_txn_report_idx  on public.wallet_transactions (report_id);
-
--- ---------------------------------------------------------------------
--- 6. SCHEMES CATALOG  (master list — the AI will match against this later)
--- ---------------------------------------------------------------------
-create table if not exists public.schemes (
-  id                uuid primary key default gen_random_uuid(),
-  name              text not null,
-  short_name        text,
-  govt_level        text check (govt_level in ('Central Govt', 'State Govt')),
-  state             text,              -- null for Central schemes
-  ministry          text,
-  sectors           text[],
-  benefit_type      text,              -- Subsidy | Loan | Grant | Tax incentive | Other
-  benefit_summary   text,
-  eligibility       jsonb,             -- structured rules, for AI / filters
-  documents_required text[],
-  official_url      text,
-  active            boolean not null default true,
-  last_verified_at  date,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
+create index if not exists reports_user_id_idx  on public.reports (user_id);
+create index if not exists reports_status_idx   on public.reports (status, created_at);
+create index if not exists reports_payment_idx  on public.reports (payment_status, created_at);
+create index if not exists reports_assigned_idx on public.reports (assigned_to);
+
+-- ---------------------------------------------------------------------
+-- 5. SCHEMES CATALOG, MATCHED SCHEMES, HISTORY
+-- ---------------------------------------------------------------------
+create table if not exists public.schemes (
+  id                 uuid primary key default gen_random_uuid(),
+  name               text not null,
+  short_name         text,
+  govt_level         text check (govt_level in ('Central Govt', 'State Govt')),
+  state              text,
+  ministry           text,
+  sectors            text[],
+  benefit_type       text,
+  benefit_summary    text,
+  eligibility        jsonb,
+  documents_required text[],
+  official_url       text,
+  active             boolean not null default true,
+  last_verified_at   date,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
 create index if not exists schemes_state_idx on public.schemes (state);
 
--- schemes matched inside one report
 create table if not exists public.report_schemes (
-  id          uuid primary key default gen_random_uuid(),
-  report_id   uuid not null references public.reports (id) on delete cascade,
-  scheme_id   uuid references public.schemes (id),   -- optional link to the catalog
-  name        text not null,
-  govt_level  text check (govt_level in ('Central Govt', 'State Govt')),
-  sector      text,
-  description text,
-  benefit     text,
-  match_score int check (match_score between 0 and 100),
+  id           uuid primary key default gen_random_uuid(),
+  report_id    uuid not null references public.reports (id) on delete cascade,
+  scheme_id    uuid references public.schemes (id),
+  name         text not null,
+  govt_level   text check (govt_level in ('Central Govt', 'State Govt')),
+  sector       text,
+  description  text,
+  benefit      text,
+  match_score  int check (match_score between 0 and 100),
   why_eligible text,
   next_steps   text,
-  sort_order  int not null default 0,
-  created_at  timestamptz not null default now()
+  sort_order   int not null default 0,
+  created_at   timestamptz not null default now()
 );
 create index if not exists report_schemes_report_idx on public.report_schemes (report_id);
 create index if not exists report_schemes_scheme_idx on public.report_schemes (scheme_id);
 
--- status history for every report (who/what changed it and when)
 create table if not exists public.report_events (
   id         bigint generated always as identity primary key,
   report_id  uuid not null references public.reports (id) on delete cascade,
+  kind       text not null default 'status' check (kind in ('status', 'payment')),
   status     text not null,
   note       text,
-  actor      text not null default 'system',   -- customer | team | ai | system
+  actor      text not null default 'system',
   created_at timestamptz not null default now()
 );
+alter table public.report_events add column if not exists kind text not null default 'status';
 create index if not exists report_events_report_idx on public.report_events (report_id, created_at);
 
--- keep timestamps right (before save) ...
 create or replace function public.touch_report()
 returns trigger language plpgsql set search_path = '' as $$
 begin
   new.updated_at := now();
-  if new.status = 'ready' and new.delivered_at is null then
-    new.delivered_at := now();
+  if new.status = 'ready' and new.delivered_at is null then new.delivered_at := now(); end if;
+  if new.payment_status = 'paid' then
+    new.paid_at := coalesce(new.paid_at, now());
+    new.amount_paid := coalesce(new.amount_paid, new.amount_due);
+  elsif new.payment_status = 'awaiting' then
+    new.paid_at := null; new.amount_paid := null;
   end if;
   return new;
 end;
 $$;
 drop trigger if exists reports_touch on public.reports;
-create trigger reports_touch
-  before insert or update on public.reports
+create trigger reports_touch before insert or update on public.reports
   for each row execute function public.touch_report();
 
--- ... and log every status change (after save; works for table-editor edits too)
 create or replace function public.log_report_status()
 returns trigger language plpgsql security definer set search_path = '' as $$
+declare v_actor text := case when auth.uid() = new.user_id then 'customer'
+                             when auth.uid() is null then 'system' else 'team' end;
 begin
   if tg_op = 'INSERT' or new.status is distinct from old.status then
-    insert into public.report_events (report_id, status, note, actor)
-    values (new.id, new.status, new.status_note,
-            case when auth.uid() = new.user_id then 'customer'
-                 when auth.uid() is null then 'team' else 'system' end);
+    insert into public.report_events (report_id, kind, status, note, actor)
+    values (new.id, 'status', new.status, new.status_note, v_actor);
+  end if;
+  if tg_op = 'INSERT' or new.payment_status is distinct from old.payment_status then
+    insert into public.report_events (report_id, kind, status, note, actor)
+    values (new.id, 'payment', new.payment_status,
+            nullif(concat_ws(' · ', new.payment_method, new.payment_reference), ''), v_actor);
   end if;
   return null;
 end;
 $$;
 drop trigger if exists reports_status_log on public.reports;
-create trigger reports_status_log
-  after insert or update on public.reports
+create trigger reports_status_log after insert or update on public.reports
   for each row execute function public.log_report_status();
 
 -- ---------------------------------------------------------------------
--- 7. APPLICATIONS & QUERIES  (unchanged from v1)
+-- 6. APPLICATIONS & QUERIES
 -- ---------------------------------------------------------------------
 create table if not exists public.applications (
   id          uuid primary key default gen_random_uuid(),
@@ -312,28 +310,61 @@ create table if not exists public.queries (
 create index if not exists queries_user_id_idx   on public.queries (user_id);
 create index if not exists queries_report_id_idx on public.queries (report_id);
 
--- =====================================================================
--- 8. ROW LEVEL SECURITY — customers read only their own rows.
---    Every money / status change goes through the functions in section 9.
--- =====================================================================
-alter table public.app_settings        enable row level security;
-alter table public.wallet_packs        enable row level security;
-alter table public.profiles            enable row level security;
-alter table public.wallets             enable row level security;
-alter table public.payments            enable row level security;
-alter table public.reports             enable row level security;
-alter table public.wallet_transactions enable row level security;
-alter table public.schemes             enable row level security;
-alter table public.report_schemes      enable row level security;
-alter table public.report_events       enable row level security;
-alter table public.applications        enable row level security;
-alter table public.queries             enable row level security;
+-- Phone.Email confirmations already used (stops the same confirmation being replayed)
+create table if not exists public.phone_login_used (
+  url_hash   text primary key,
+  user_id    uuid references auth.users (id) on delete cascade,
+  used_at    timestamptz not null default now()
+);
 
+-- ---------------------------------------------------------------------
+-- 7. WHO IS AN ADMIN — only a mobile verified by the server
+--    (app_metadata.verified_phone is written by the phone-login Edge Function and
+--     cannot be changed from the browser) that is listed in admin_phones.
+-- ---------------------------------------------------------------------
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = '' as $$
+  with me as (
+    select nullif(u.raw_app_meta_data ->> 'verified_phone', '') as vp,
+           case when u.phone_confirmed_at is not null
+                then nullif(regexp_replace(coalesce(u.phone, ''), '\D', '', 'g'), '') end as sp
+      from auth.users u
+     where u.id = auth.uid()
+  )
+  select exists (
+    select 1 from me
+     where vp = any(public.super_admin_phones())
+        or sp = any(public.super_admin_phones())
+        or exists (select 1 from public.admin_phones a where a.active and a.phone in (me.vp, me.sp))
+  )
+$$;
+
+create or replace function public.is_super_admin()
+returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (
+    select 1 from auth.users u
+     where u.id = auth.uid()
+       and (u.raw_app_meta_data ->> 'verified_phone') = any(public.super_admin_phones())
+  )
+$$;
+
+-- =====================================================================
+-- 8. ROW LEVEL SECURITY
+-- =====================================================================
+alter table public.app_settings     enable row level security;
+alter table public.admin_phones     enable row level security;
+alter table public.profiles         enable row level security;
+alter table public.reports          enable row level security;
+alter table public.schemes          enable row level security;
+alter table public.report_schemes   enable row level security;
+alter table public.report_events    enable row level security;
+alter table public.applications     enable row level security;
+alter table public.queries          enable row level security;
+alter table public.phone_login_used enable row level security;   -- no policies: server only
+
+-- customers
 drop policy if exists "settings: public read" on public.app_settings;
 create policy "settings: public read" on public.app_settings for select to anon, authenticated using (true);
-
-drop policy if exists "packs: public read" on public.wallet_packs;
-create policy "packs: public read" on public.wallet_packs for select to anon, authenticated using (active);
 
 drop policy if exists "profiles: read own" on public.profiles;
 create policy "profiles: read own" on public.profiles for select to authenticated using ((select auth.uid()) = id);
@@ -341,17 +372,8 @@ drop policy if exists "profiles: update own" on public.profiles;
 create policy "profiles: update own" on public.profiles for update to authenticated
   using ((select auth.uid()) = id) with check ((select auth.uid()) = id);
 
-drop policy if exists "wallets: read own" on public.wallets;
-create policy "wallets: read own" on public.wallets for select to authenticated using ((select auth.uid()) = user_id);
-
-drop policy if exists "payments: read own" on public.payments;
-create policy "payments: read own" on public.payments for select to authenticated using ((select auth.uid()) = user_id);
-
 drop policy if exists "reports: read own" on public.reports;
 create policy "reports: read own" on public.reports for select to authenticated using ((select auth.uid()) = user_id);
-
-drop policy if exists "wallet_txn: read own" on public.wallet_transactions;
-create policy "wallet_txn: read own" on public.wallet_transactions for select to authenticated using ((select auth.uid()) = user_id);
 
 drop policy if exists "schemes: read active" on public.schemes;
 create policy "schemes: read active" on public.schemes for select to authenticated using (active);
@@ -376,191 +398,259 @@ drop policy if exists "queries: create own" on public.queries;
 create policy "queries: create own" on public.queries for insert to authenticated
   with check ((select auth.uid()) = user_id and status = 'Open' and admin_reply is null);
 
--- customers may edit only these profile columns
-revoke update on public.profiles from authenticated;
-grant update (full_name, business_name, email) on public.profiles to authenticated;
+-- admins: read everything
+do $$
+declare t text;
+begin
+  foreach t in array array['profiles','reports','schemes','report_schemes','report_events',
+                           'applications','queries','admin_phones','app_settings']
+  loop
+    execute format('drop policy if exists "admin: read all" on public.%I', t);
+    execute format('create policy "admin: read all" on public.%I for select to authenticated using ((select public.is_admin()))', t);
+  end loop;
+end $$;
+
+-- column-level write permissions (everything else is read-only from the browser)
+revoke update on public.profiles, public.reports, public.queries, public.applications,
+                 public.app_settings, public.admin_phones from authenticated;
+grant update (full_name, business_name, email) on public.profiles to authenticated;   -- not mobile: it is the login
+
+drop policy if exists "admin: update reports" on public.reports;
+create policy "admin: update reports" on public.reports for update to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant update (status, status_note, assigned_to, summary, schemes_found, potential_benefit, high_matches,
+              report_file_path, payment_status, amount_paid, payment_method, payment_reference,
+              payment_note, paid_at) on public.reports to authenticated;
+
+drop policy if exists "admin: manage report_schemes" on public.report_schemes;
+create policy "admin: manage report_schemes" on public.report_schemes for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant insert, update, delete on public.report_schemes to authenticated;
+
+drop policy if exists "admin: update queries" on public.queries;
+create policy "admin: update queries" on public.queries for update to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant update (status, admin_reply) on public.queries to authenticated;
+
+drop policy if exists "admin: update applications" on public.applications;
+create policy "admin: update applications" on public.applications for update to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant update (status) on public.applications to authenticated;
+
+drop policy if exists "admin: manage schemes" on public.schemes;
+create policy "admin: manage schemes" on public.schemes for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant insert, update, delete on public.schemes to authenticated;
+
+drop policy if exists "admin: manage admin_phones" on public.admin_phones;
+create policy "admin: manage admin_phones" on public.admin_phones for all to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant insert on public.admin_phones to authenticated;
+grant update (name, active) on public.admin_phones to authenticated;
+
+drop policy if exists "admin: update settings" on public.app_settings;
+create policy "admin: update settings" on public.app_settings for update to authenticated
+  using ((select public.is_admin())) with check ((select public.is_admin()));
+grant update (value, updated_at) on public.app_settings to authenticated;
 
 -- =====================================================================
--- 9. FUNCTIONS (the only way money and reports change)
+-- 9. ADMIN VIEWS (respect the rules above)
+-- =====================================================================
+drop view if exists public.admin_payments_v, public.admin_ledger_v;   -- wallet-era views
+
+create or replace view public.admin_customers_v with (security_invoker = true) as
+select p.id, p.full_name, p.email, p.mobile, p.business_name, p.created_at,
+       (select count(*) from public.reports r where r.user_id = p.id)                           as reports_count,
+       (select coalesce(sum(amount_paid), 0) from public.reports r
+         where r.user_id = p.id and r.payment_status = 'paid')                                    as total_paid,
+       (select coalesce(sum(amount_due), 0) from public.reports r
+         where r.user_id = p.id and r.payment_status = 'awaiting' and r.status <> 'cancelled')    as outstanding,
+       greatest(p.created_at, (select max(created_at) from public.reports r where r.user_id = p.id)) as last_activity
+  from public.profiles p
+ where not p.is_internal;
+
+create or replace view public.admin_reports_v with (security_invoker = true) as
+select r.*, p.full_name as customer_name, p.email as customer_email, p.mobile as customer_mobile,
+       extract(epoch from (coalesce(r.delivered_at, now()) - coalesce(r.paid_at, r.created_at))) / 3600.0 as age_hours
+  from public.reports r
+  left join public.profiles p on p.id = r.user_id;
+
+create or replace view public.admin_queries_v with (security_invoker = true) as
+select q.*, p.full_name as customer_name, p.email as customer_email, p.mobile as customer_mobile
+  from public.queries q left join public.profiles p on p.id = q.user_id;
+
+create or replace view public.admin_applications_v with (security_invoker = true) as
+select a.*, p.full_name as customer_name, p.email as customer_email, p.mobile as customer_mobile, r.report_code
+  from public.applications a
+  left join public.profiles p on p.id = a.user_id
+  left join public.reports  r on r.id = a.report_id;
+
+revoke all on public.admin_customers_v, public.admin_reports_v, public.admin_queries_v, public.admin_applications_v from anon;
+grant select on public.admin_customers_v, public.admin_reports_v, public.admin_queries_v, public.admin_applications_v to authenticated;
+
+-- =====================================================================
+-- 10. FUNCTIONS
 -- =====================================================================
 
--- 9a. Start a recharge: creates a payment row priced from wallet_packs
-create or replace function public.create_payment_order(p_pack_id text)
-returns public.payments
-language plpgsql security definer set search_path = '' as $$
-declare
-  v_uid  uuid := auth.uid();
-  v_pack public.wallet_packs;
-  v_pay  public.payments;
-begin
-  if v_uid is null then raise exception 'NOT_SIGNED_IN'; end if;
-
-  select * into v_pack from public.wallet_packs where id = p_pack_id and active;
-  if not found then raise exception 'INVALID_PACK'; end if;
-
-  insert into public.payments (user_id, pack_id, amount, credit_amount, gateway)
-  values (v_uid, v_pack.id, v_pack.amount, v_pack.amount + v_pack.bonus,
-          coalesce(public.setting_text('payment_mode'), 'dummy'))
-  returning * into v_pay;
-
-  -- TODO (Razorpay): an Edge Function creates the Razorpay order and stores gateway_order_id
-  return v_pay;
-end;
-$$;
-
--- 9b. Mark a payment paid and credit the wallet (idempotent).
---     Called by the payment webhook (service role) — NOT callable from the browser.
-create or replace function public.credit_payment(
-  p_payment_id         uuid,
-  p_gateway_payment_id text default null,
-  p_gateway_response   jsonb default null
-)
-returns public.wallets
-language plpgsql security definer set search_path = '' as $$
-declare
-  v_pay    public.payments;
-  v_wallet public.wallets;
-begin
-  select * into v_pay from public.payments where id = p_payment_id for update;
-  if not found then raise exception 'PAYMENT_NOT_FOUND'; end if;
-
-  if v_pay.status = 'paid' then           -- already credited: do nothing
-    select * into v_wallet from public.wallets where user_id = v_pay.user_id;
-    return v_wallet;
-  end if;
-  if v_pay.status <> 'created' then raise exception 'PAYMENT_NOT_PAYABLE'; end if;
-
-  update public.payments
-     set status = 'paid', paid_at = now(),
-         gateway_payment_id = coalesce(p_gateway_payment_id, gateway_payment_id),
-         gateway_response   = coalesce(p_gateway_response, gateway_response)
-   where id = v_pay.id;
-
-  insert into public.wallets (user_id) values (v_pay.user_id) on conflict (user_id) do nothing;
-  update public.wallets
-     set balance = balance + v_pay.credit_amount, updated_at = now()
-   where user_id = v_pay.user_id
-   returning * into v_wallet;
-
-  insert into public.wallet_transactions (user_id, direction, amount, balance_after, reason, payment_id, note)
-  values (v_pay.user_id, 'credit', v_pay.credit_amount, v_wallet.balance, 'recharge', v_pay.id,
-          'Wallet recharge ' || v_pay.payment_code);
-
-  return v_wallet;
-end;
-$$;
-
--- 9c. TEST ONLY: the dummy checkout. Works only while payment_mode = 'dummy'.
-create or replace function public.dummy_confirm_payment(p_payment_id uuid)
-returns public.wallets
-language plpgsql security definer set search_path = '' as $$
-declare
-  v_uid uuid := auth.uid();
-begin
-  if v_uid is null then raise exception 'NOT_SIGNED_IN'; end if;
-  if coalesce(public.setting_text('payment_mode'), 'dummy') <> 'dummy' then
-    raise exception 'DUMMY_PAYMENTS_DISABLED';
-  end if;
-  if not exists (select 1 from public.payments
-                 where id = p_payment_id and user_id = v_uid and gateway = 'dummy') then
-    raise exception 'PAYMENT_NOT_FOUND';
-  end if;
-  return public.credit_payment(p_payment_id, 'dummy_' || replace(gen_random_uuid()::text, '-', ''),
-                               jsonb_build_object('simulated', true));
-end;
-$$;
-
--- 9d. Submit a report request: checks balance, deducts the price, saves the form.
---     All-or-nothing: if the balance is short, nothing is saved or deducted.
+-- customer submits a request (no money moves here; payment happens outside)
 create or replace function public.submit_report_request(p_inputs jsonb)
 returns public.reports
 language plpgsql security definer set search_path = '' as $$
 declare
   v_uid    uuid := auth.uid();
-  v_price  numeric(12,2) := coalesce(public.setting_num('report_price'), 499);
-  v_wallet public.wallets;
   v_report public.reports;
   v_email  text;
 begin
   if v_uid is null then raise exception 'NOT_SIGNED_IN'; end if;
   if coalesce(trim(p_inputs ->> 'business_name'), '') = '' then raise exception 'BUSINESS_NAME_REQUIRED'; end if;
-
-  v_email := coalesce(nullif(trim(p_inputs ->> 'delivery_email'), ''),
-                      (select email from public.profiles where id = v_uid));
+  v_email := lower(coalesce(nullif(trim(p_inputs ->> 'delivery_email'), ''),
+                            (select email from public.profiles where id = v_uid)));
   if v_email is null then raise exception 'DELIVERY_EMAIL_REQUIRED'; end if;
 
-  -- lock the wallet row so two quick clicks can't spend the same money twice
-  select * into v_wallet from public.wallets where user_id = v_uid for update;
-  if not found or v_wallet.balance < v_price then
-    raise exception 'INSUFFICIENT_BALANCE' using detail = format('Need %s, have %s', v_price, coalesce(v_wallet.balance, 0));
-  end if;
-
   insert into public.reports (user_id, form_version, inputs, business_name, industry, state,
-                              delivery_email, price_charged, generation_mode)
+                              delivery_email, amount_due, generation_mode)
   values (v_uid, coalesce((p_inputs ->> 'form_version')::int, 1), p_inputs,
           trim(p_inputs ->> 'business_name'), p_inputs ->> 'industry', p_inputs ->> 'state',
-          v_email, v_price, coalesce(public.setting_text('generation_mode'), 'manual'))
+          v_email, coalesce(public.setting_num('report_price'), 499),
+          coalesce(public.setting_text('generation_mode'), 'manual'))
   returning * into v_report;
-
-  update public.wallets set balance = balance - v_price, updated_at = now()
-   where user_id = v_uid returning * into v_wallet;
-
-  insert into public.wallet_transactions (user_id, direction, amount, balance_after, reason, report_id, note)
-  values (v_uid, 'debit', v_price, v_wallet.balance, 'report', v_report.id,
-          'Scheme report ' || v_report.report_code);
-
   return v_report;
 end;
 $$;
 
--- 9e. TEAM: refund a report back to the wallet (e.g. could not be delivered)
-create or replace function public.refund_report(p_report_id uuid, p_note text default null)
-returns public.wallets
-language plpgsql security definer set search_path = '' as $$
+-- analytics for the admin dashboard. p_days: 7 / 30 / 90 / 365 / 0 (= all time). Days in IST.
+create or replace function public.admin_analytics(p_days int default 30)
+returns jsonb
+language plpgsql stable security definer set search_path = '' as $$
 declare
-  v_report public.reports;
-  v_wallet public.wallets;
+  v_tz    text := 'Asia/Kolkata';
+  v_today date := (now() at time zone v_tz)::date;
+  v_from  date;
+  v_start timestamptz;
+  v_sla   numeric := coalesce(public.setting_num('delivery_sla_hours'), 24);
+  v_out   jsonb;
 begin
-  select * into v_report from public.reports where id = p_report_id for update;
-  if not found then raise exception 'REPORT_NOT_FOUND'; end if;
-  if v_report.status = 'refunded' then raise exception 'ALREADY_REFUNDED'; end if;
+  if not public.is_admin() then raise exception 'NOT_ADMIN'; end if;
+  if coalesce(p_days, 0) <= 0 then
+    v_from := coalesce((select min((created_at at time zone v_tz)::date) from public.profiles where not is_internal), v_today);
+  else
+    v_from := v_today - (p_days - 1);
+  end if;
+  v_start := v_from::timestamp at time zone v_tz;
 
-  update public.reports set status = 'refunded', status_note = coalesce(p_note, 'Amount refunded to wallet')
-   where id = p_report_id;
-
-  update public.wallets set balance = balance + v_report.price_charged, updated_at = now()
-   where user_id = v_report.user_id returning * into v_wallet;
-
-  insert into public.wallet_transactions (user_id, direction, amount, balance_after, reason, report_id, note)
-  values (v_report.user_id, 'credit', v_report.price_charged, v_wallet.balance, 'refund', v_report.id,
-          coalesce(p_note, 'Refund for ' || v_report.report_code));
-  return v_wallet;
+  with
+  cust as (select id, created_at from public.profiles where not is_internal),
+  rep  as (select * from public.reports where user_id in (select id from cust)),
+  paid as (select * from rep where payment_status = 'paid'),
+  open_work as (select * from rep where status in ('submitted', 'processing') and payment_status in ('paid', 'waived')),
+  days as (select generate_series(v_from, v_today, interval '1 day')::date as d)
+  select jsonb_build_object(
+    'range', jsonb_build_object('from', v_from, 'to', v_today, 'days', (v_today - v_from) + 1),
+    'kpis', jsonb_build_object(
+      'customers_total',      (select count(*) from cust),
+      'customers_new',        (select count(*) from cust where created_at >= v_start),
+      'revenue',              (select coalesce(sum(amount_paid), 0) from paid where paid_at >= v_start),
+      'revenue_total',        (select coalesce(sum(amount_paid), 0) from paid),
+      'payments',             (select count(*) from paid where paid_at >= v_start),
+      'paying_customers',     (select count(distinct user_id) from paid where paid_at >= v_start),
+      'reports',              (select count(*) from rep where created_at >= v_start),
+      'awaiting_count',       (select count(*) from rep where payment_status = 'awaiting' and status <> 'cancelled'),
+      'awaiting_amount',      (select coalesce(sum(amount_due), 0) from rep where payment_status = 'awaiting' and status <> 'cancelled'),
+      'open_queue',           (select count(*) from open_work),
+      'overdue',              (select count(*) from open_work
+                                where coalesce(paid_at, created_at) < now() - make_interval(hours => v_sla::int)),
+      'avg_turnaround_hours', (select round(avg(extract(epoch from (delivered_at - coalesce(paid_at, created_at))) / 3600.0)::numeric, 1)
+                                 from rep where status = 'ready' and delivered_at >= v_start),
+      'on_time_pct',          (select round(100.0 * avg(case when delivered_at - coalesce(paid_at, created_at)
+                                                                   <= make_interval(hours => v_sla::int) then 1 else 0 end), 0)
+                                 from rep where status = 'ready' and delivered_at >= v_start),
+      'refunded',             (select coalesce(sum(amount_paid), 0) from rep where payment_status = 'refunded' and updated_at >= v_start),
+      'cancelled',            (select count(*) from rep where status = 'cancelled' and updated_at >= v_start),
+      'open_queries',         (select count(*) from public.queries where status = 'Open'),
+      'sla_hours',            v_sla
+    ),
+    'daily', (
+      select coalesce(jsonb_agg(jsonb_build_object(
+               'date', d,
+               'revenue', (select coalesce(sum(amount_paid), 0) from paid where (paid_at at time zone v_tz)::date = d),
+               'signups', (select count(*) from cust where (created_at at time zone v_tz)::date = d),
+               'reports', (select count(*) from rep  where (created_at at time zone v_tz)::date = d)
+             ) order by d), '[]'::jsonb) from days
+    ),
+    'reports_by_status', (
+      select coalesce(jsonb_object_agg(status, n), '{}'::jsonb)
+        from (select status, count(*) n from rep where created_at >= v_start group by status) s),
+    'reports_by_payment', (
+      select coalesce(jsonb_object_agg(payment_status, n), '{}'::jsonb)
+        from (select payment_status, count(*) n from rep where created_at >= v_start group by payment_status) s),
+    'by_method', (
+      select coalesce(jsonb_agg(jsonb_build_object('label', k, 'value', n, 'amount', amt) order by amt desc), '[]'::jsonb)
+        from (select coalesce(nullif(payment_method, ''), 'Not recorded') k, count(*) n, sum(amount_paid) amt
+                from paid where paid_at >= v_start group by 1) x),
+    'by_industry', (
+      select coalesce(jsonb_agg(jsonb_build_object('label', k, 'value', n) order by n desc, k), '[]'::jsonb)
+        from (select coalesce(nullif(industry, ''), 'Not given') k, count(*) n from rep
+               where created_at >= v_start group by 1 order by 2 desc limit 10) x),
+    'by_state', (
+      select coalesce(jsonb_agg(jsonb_build_object('label', k, 'value', n) order by n desc, k), '[]'::jsonb)
+        from (select coalesce(nullif(state, ''), 'Not given') k, count(*) n from rep
+               where created_at >= v_start group by 1 order by 2 desc limit 10) x),
+    'by_purpose', (
+      select coalesce(jsonb_agg(jsonb_build_object('label', k, 'value', n) order by n desc, k), '[]'::jsonb)
+        from (select p.k, count(*) n
+                from rep, jsonb_array_elements_text(coalesce(rep.inputs -> 'purpose', '[]'::jsonb)) as p(k)
+               where rep.created_at >= v_start group by 1 order by 2 desc limit 10) x),
+    'funnel', jsonb_build_object(
+      'signed_up', (select count(*) from cust where created_at >= v_start),
+      'requested', (select count(*) from cust c where c.created_at >= v_start and exists (select 1 from rep where rep.user_id = c.id)),
+      'paid',      (select count(*) from cust c where c.created_at >= v_start and exists (select 1 from paid where paid.user_id = c.id)),
+      'repeat',    (select count(*) from cust c where c.created_at >= v_start and (select count(*) from paid where paid.user_id = c.id) >= 2)
+    )
+  ) into v_out;
+  return v_out;
 end;
 $$;
 
+-- remove wallet-era and test-OTP-era functions if this project had them
+drop function if exists public.create_payment_order(text);
+drop function if exists public.credit_payment(uuid, text, jsonb);
+drop function if exists public.dummy_confirm_payment(uuid);
+drop function if exists public.refund_report(uuid, text);
+drop function if exists public.admin_refund_report(uuid, text);
+drop function if exists public.admin_adjust_wallet(uuid, numeric, text);
+drop function if exists public.admin_phone_allowed(text);
+drop function if exists public.admin_login_mode();
+drop function if exists public.mobile_registered(text);
+drop function if exists public.admin_dummy_email(text);
+
 -- who can call what
-revoke execute on function public.create_payment_order(text)        from public, anon;
-revoke execute on function public.dummy_confirm_payment(uuid)       from public, anon;
-revoke execute on function public.submit_report_request(jsonb)      from public, anon;
-revoke execute on function public.credit_payment(uuid, text, jsonb) from public, anon, authenticated;
-revoke execute on function public.refund_report(uuid, text)         from public, anon, authenticated;
-revoke execute on function public.handle_new_user()                 from public, anon, authenticated;
-revoke execute on function public.log_report_status()              from public, anon, authenticated;
-revoke execute on function public.touch_report()                   from public, anon, authenticated;
-revoke execute on function public.setting_num(text)                 from public, anon, authenticated;
-revoke execute on function public.setting_text(text)                from public, anon, authenticated;
-grant  execute on function public.create_payment_order(text)        to authenticated;
-grant  execute on function public.dummy_confirm_payment(uuid)       to authenticated;
-grant  execute on function public.submit_report_request(jsonb)      to authenticated;
+revoke execute on function public.handle_new_user()             from public, anon, authenticated;
+revoke execute on function public.log_report_status()           from public, anon, authenticated;
+revoke execute on function public.touch_report()                from public, anon, authenticated;
+revoke execute on function public.setting_num(text)             from public, anon, authenticated;
+revoke execute on function public.setting_text(text)            from public, anon, authenticated;
+revoke execute on function public.submit_report_request(jsonb)  from public, anon;
+revoke execute on function public.is_admin()                    from public, anon;
+revoke execute on function public.admin_analytics(int)          from public, anon;
+revoke execute on function public.is_super_admin()              from public, anon;
+revoke execute on function public.super_admin_phones()          from public, anon, authenticated;
+revoke execute on function public.protect_super_admins()        from public, anon, authenticated;
+grant  execute on function public.is_super_admin()              to authenticated;
+grant  execute on function public.submit_report_request(jsonb)  to authenticated;
+grant  execute on function public.is_admin()                    to authenticated;
+grant  execute on function public.admin_analytics(int)          to authenticated;
 
 -- =====================================================================
--- 10. STORAGE — private bucket for report PDFs.
---     Team uploads to:  reports / <customer user_id> / <report_code>.pdf
+-- 11. STORAGE — private bucket for report PDFs:  reports/<user_id>/<report_code>.pdf
 -- =====================================================================
-insert into storage.buckets (id, name, public)
-values ('reports', 'reports', false)
+insert into storage.buckets (id, name, public) values ('reports', 'reports', false)
 on conflict (id) do nothing;
 
 drop policy if exists "reports bucket: read own" on storage.objects;
 create policy "reports bucket: read own" on storage.objects for select to authenticated
   using (bucket_id = 'reports' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+drop policy if exists "reports bucket: admin all" on storage.objects;
+create policy "reports bucket: admin all" on storage.objects for all to authenticated
+  using (bucket_id = 'reports' and (select public.is_admin()))
+  with check (bucket_id = 'reports' and (select public.is_admin()));
