@@ -11,6 +11,7 @@ import Payments from './pages/Payments'
 import Queries from './pages/Queries'
 import Applications from './pages/Applications'
 import Settings from './pages/Settings'
+import FreeReportLeads from './pages/FreeReportLeads'
 
 export default function AdminApp() {
   return (
@@ -26,6 +27,7 @@ export default function AdminApp() {
           <Route path="payments" element={<Payments />} />
           <Route path="queries" element={<Queries />} />
           <Route path="applications" element={<Applications />} />
+          <Route path="free-report-leads" element={<FreeReportLeads />} />
           <Route path="settings" element={<Settings />} />
         </Route>
         <Route path="*" element={<Navigate to="/admin" replace />} />

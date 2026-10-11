@@ -52,6 +52,9 @@ export const adminApi = {
   applications: () => all('admin_applications_v'),
   setApplicationStatus: (id, status) => sb.from('applications').update({ status }).eq('id', id).then(unwrap),
 
+  freeReportLeads: () => all('free_report_leads'),
+  deleteFreeReportLead: (id) => sb.from('free_report_leads').delete().eq('id', id).then(unwrap),
+
   settings: () => sb.from('app_settings').select('*').order('key').then(unwrap),
   setSetting: (key, value) =>
     sb.from('app_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key).then(unwrap),

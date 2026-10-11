@@ -38,8 +38,9 @@ export default function Analytics() {
   const rangeLabel = RANGES.find((r) => r.value === days)?.label
 
   const exportAll = async () => {
-    const [customers, reports, queries, applications] = await Promise.all([
+    const [customers, reports, queries, applications, freeLeads] = await Promise.all([
       adminApi.customers(), adminApi.reports(), adminApi.queries(), adminApi.applications(),
+      adminApi.freeReportLeads().catch(() => []),
     ])
     const k = data.kpis
     await downloadExcel('findmyschemes-analytics', [
@@ -81,6 +82,7 @@ export default function Analytics() {
       { name: 'Payments', columns: COLUMNS.payments, rows: reports.filter((r) => r.payment_status !== 'awaiting' || r.status !== 'cancelled') },
       { name: 'Queries', columns: COLUMNS.queries, rows: queries },
       { name: 'Applications', columns: COLUMNS.applications, rows: applications },
+      { name: 'Free Report Leads', columns: COLUMNS.freeReportLeads, rows: freeLeads },
     ])
   }
 

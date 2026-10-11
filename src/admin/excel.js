@@ -135,6 +135,13 @@ export const COLUMNS = {
     { header: 'Message', key: 'message', width: 50 },
     { header: 'Reply', key: 'admin_reply', width: 50 },
   ],
+  freeReportLeads: [
+    { header: 'Name', key: 'name', width: 26 },
+    { header: 'Email', key: 'email', width: 32 },
+    { header: 'Mobile', key: 'phone', width: 16 },
+    { header: 'Downloaded on', key: 'created_at', type: 'datetime', width: 18 },
+    { header: 'Source', key: 'source', width: 12 },
+  ],
   applications: [
     { header: 'Application ID', key: 'app_code', width: 15 },
     { header: 'Date', key: 'created_at', type: 'datetime', width: 18 },

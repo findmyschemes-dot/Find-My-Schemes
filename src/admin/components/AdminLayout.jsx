@@ -10,6 +10,7 @@ const NAV = [
   { to: '/admin/payments', label: 'Payments', icon: 'fa-indian-rupee-sign' },
   { to: '/admin/queries', label: 'Queries', icon: 'fa-headset' },
   { to: '/admin/applications', label: 'Applications', icon: 'fa-clipboard-list' },
+  { to: '/admin/free-report-leads', label: 'Free Report Leads', icon: 'fa-file-arrow-down' },
   { to: '/admin/settings', label: 'Settings', icon: 'fa-gear' },
 ]
 

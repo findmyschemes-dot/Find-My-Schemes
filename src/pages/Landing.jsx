@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import SiteHeader from '../components/SiteHeader'
 import { useAuth } from '../context/AuthContext'
+import DemoReportModal, { alreadyRegistered, startDemoDownload } from '../components/DemoReportModal'
 
 const SLIDES = [
   { src: '/assets/image_1.jpg', alt: 'Business owner' },
@@ -61,8 +62,18 @@ export default function Landing() {
     navigate(user ? '/dashboard/request-report' : '/login?redirect=request-report')
   }
 
+  // "Demo report" buttons: collect name, email and mobile first (once per browser), then download
+  const [demoOpen, setDemoOpen] = useState(false)
+  const closeDemo = useCallback(() => setDemoOpen(false), [])
+  const openDemo = (e) => {
+    e?.preventDefault()
+    if (alreadyRegistered()) startDemoDownload()
+    else setDemoOpen(true)
+  }
+
   return (
     <div className="font-sans bg-beige text-gray-800 antialiased">
+      <DemoReportModal open={demoOpen} onClose={closeDemo} />
       <SiteHeader onReportClick={goToReport} />
 
       {/* Hero */}
@@ -92,7 +103,7 @@ export default function Landing() {
                 <span className="text-gray-800 font-medium text-sm">₹499 | Delivered within 24 hours</span>
                 <a
                   href="/assets/Demo.pdf"
-                  download
+                  onClick={openDemo}
                   className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-rust px-4 py-2 rounded-md shadow-sm flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200"
                 >
                   <i className="fa-solid fa-download" /> Demo report
@@ -285,7 +296,7 @@ export default function Landing() {
             <p className="text-gray-300 font-medium text-sm">₹499 | Delivered within 24 hours</p>
             <a
               href="/assets/Demo.pdf"
-              download
+              onClick={openDemo}
               className="bg-white/10 border border-white/20 text-white hover:bg-white/20 px-4 py-2 rounded-md shadow-sm flex items-center gap-2 text-sm font-semibold transition-all duration-200"
             >
               <i className="fa-solid fa-download" /> Demo report
