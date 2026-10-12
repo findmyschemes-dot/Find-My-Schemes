@@ -29,6 +29,12 @@ Opens http://localhost:5173
 4. **Authentication → Sign In / Providers → Email**: must be **enabled** (used behind the scenes for the session).
 5. **Project Settings → API** → copy Project URL + anon key into `.env` (see `.env.example`).
 
+## 2a. Login history
+Supabase → SQL Editor → run `supabase/login_history.sql` (fresh projects: already in `schema.sql`), then
+re-deploy the `phone-login` Edge Function with the updated `supabase/functions/phone-login/index.ts`
+(Edge Functions → phone-login → Code → paste → Deploy; keep "Verify JWT" OFF).
+Every login attempt then appears in **Admin → Login Activity** (who, when, device, fresh OTP or remembered device, refused attempts).
+
 ## 2b. Online payments (Razorpay)
 Everything is in **`server/README.md`**: run `supabase/online_payments.sql`, fill `server/.env`
 (test + live keys, `RAZORPAY_MODE`), deploy the `server` folder as its own Vercel project, add webhooks,

@@ -36,9 +36,16 @@ async function loadOwnReport(req, { allowAdmin = false } = {}) {
   const reportId = req.body?.reportId
   if (!isUuid(reportId)) throw new AppError(400, 'BAD_REQUEST', 'reportId is required.')
   const report = await db.getReport(reportId)
-  if (!report) throw new AppError(404, 'NOT_FOUND', 'Request not found.')
+  // The customer only ever sees "Request not found"; the real reason goes to the server log (Vercel → Logs)
+  if (!report) {
+    console.warn('[payments] refused: request not in database (or server cannot read it — check SUPABASE_SERVICE_ROLE_KEY)', { path: req.path, reportId, userId: req.user.id })
+    throw new AppError(404, 'NOT_FOUND', 'Request not found.')
+  }
   if (report.user_id !== req.user.id) {
-    if (!(allowAdmin && (await db.isAdmin(req.token)))) throw new AppError(404, 'NOT_FOUND', 'Request not found.')
+    if (!(allowAdmin && (await db.isAdmin(req.token)))) {
+      console.warn('[payments] refused: request belongs to another account', { path: req.path, reportId, userId: req.user.id })
+      throw new AppError(404, 'NOT_FOUND', 'Request not found.')
+    }
     req.isAdmin = true
   }
   return report

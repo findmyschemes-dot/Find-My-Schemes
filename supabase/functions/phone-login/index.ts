@@ -8,6 +8,8 @@
 //   1. checks the URL really is on user.phone.email and reads the verified number from it (server-side)
 //   2. finds the account for that number — or creates it (sign-up / first admin login)
 //   3. returns a one-time login token; the browser exchanges it for a session
+//   4. writes every attempt to login_events (Admin → Login Activity): who, when, device,
+//      fresh OTP or remembered device, success or why it was refused. Never blocks a login.
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → name "phone-login" →
 //         paste this file → Deploy → then turn OFF "Verify JWT" for this function.
@@ -77,10 +79,27 @@ export async function handle(req: Request, deps?: { admin?: any; fetcher?: typeo
     // ("SessionIDFound"), so a link is allowed more than once; each use is logged.
     const urlHash = await sha256(url.toString())
 
+    // Fresh OTP or remembered device? A confirmation seen before = Phone.Email remembered this device.
+    const { data: seen } = await admin.from('phone_login_used').select('url_hash').eq('url_hash', urlHash).maybeSingle()
+    const verification = seen ? 'remembered' : 'fresh'
+    const record = async (outcome: string, extra: Record<string, unknown> = {}) => {
+      try {
+        await admin.from('login_events').insert({
+          phone: digits, mode, outcome, verification,
+          ip: clean((req.headers.get('x-forwarded-for') || '').split(',')[0], 60) || null,
+          user_agent: clean(req.headers.get('user-agent') || '', 300) || null,
+          ...extra,
+        })
+      } catch { /* history must never stop a login */ }
+    }
+
     // 2a. Admin panel: number must be on the admin list
     if (mode === 'admin' && !SUPER_ADMINS.includes(digits)) {
       const { data: a } = await admin.from('admin_phones').select('phone').eq('phone', digits).eq('active', true).maybeSingle()
-      if (!a) return reply({ ok: false, code: 'not_admin', phone: digits })
+      if (!a) {
+        await record('not_admin')
+        return reply({ ok: false, code: 'not_admin', phone: digits })
+      }
     }
 
     // 2b. Existing account for this number?
@@ -91,7 +110,10 @@ export async function handle(req: Request, deps?: { admin?: any; fetcher?: typeo
 
     if (!userId) {
       // Login with an unknown number → send them to sign-up (this confirmation stays usable)
-      if (mode === 'login') return reply({ ok: false, code: 'not_registered', phone: digits })
+      if (mode === 'login') {
+        await record('not_registered')
+        return reply({ ok: false, code: 'not_registered', phone: digits })
+      }
 
       const peName = [clean(pe?.user_first_name), clean(pe?.user_last_name)].filter(Boolean).join(' ')
       const { data: created, error } = await admin.auth.admin.createUser({
@@ -105,13 +127,19 @@ export async function handle(req: Request, deps?: { admin?: any; fetcher?: typeo
         },
         app_metadata: { verified_phone: digits, verified_by: 'phone.email' },
       })
-      if (error) return reply({ ok: false, code: 'create_failed', message: error.message })
+      if (error) {
+        await record('failed')
+        return reply({ ok: false, code: 'create_failed', message: error.message })
+      }
       userId = created.user.id
       isNew = true
     } else {
       // keep the server-verified number on the account and make sure it has its login address
       const { data: got, error } = await admin.auth.admin.getUserById(userId)
-      if (error || !got?.user) return reply({ ok: false, code: 'account_missing' })
+      if (error || !got?.user) {
+        await record('failed', { user_id: userId })
+        return reply({ ok: false, code: 'account_missing' })
+      }
       const appMeta = got.user.app_metadata || {}
       const patch: Record<string, unknown> = {}
       if (appMeta.verified_phone !== digits) patch.app_metadata = { ...appMeta, verified_phone: digits, verified_by: 'phone.email' }
@@ -125,7 +153,12 @@ export async function handle(req: Request, deps?: { admin?: any; fetcher?: typeo
 
     // 3. One-time token the browser exchanges for a session (nothing is emailed)
     const { data: link, error: linkErr } = await admin.auth.admin.generateLink({ type: 'magiclink', email: loginEmail })
-    if (linkErr || !link?.properties?.hashed_token) return reply({ ok: false, code: 'token_failed', message: linkErr?.message })
+    if (linkErr || !link?.properties?.hashed_token) {
+      await record('failed', { user_id: userId })
+      return reply({ ok: false, code: 'token_failed', message: linkErr?.message })
+    }
+
+    await record('success', { user_id: userId, is_new_account: isNew })
 
     return reply({
       ok: true,

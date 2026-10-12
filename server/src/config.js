@@ -46,12 +46,39 @@ const supabaseUrl = env('SUPABASE_URL').replace(/\/+$/, '')
 const supabaseServiceKey = env('SUPABASE_SERVICE_ROLE_KEY')
 if (placeholder(supabaseUrl) || placeholder(supabaseServiceKey)) problems.push('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing')
 
+// The server needs the MASTER key. With the public (anon / publishable) key it can still check logins,
+// but the database hides every request from it → every payment fails with "Request not found".
+function supabaseKeyInfo(k) {
+  if (!k) return { kind: 'missing' }
+  if (k.startsWith('sb_secret_')) return { kind: 'service' }
+  if (k.startsWith('sb_publishable_')) return { kind: 'public' }
+  const parts = k.split('.')
+  if (parts.length === 3) {
+    try {
+      const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'))
+      return { kind: claims.role === 'service_role' ? 'service' : claims.role === 'anon' ? 'public' : 'unknown', ref: claims.ref }
+    } catch { /* not a JWT */ }
+  }
+  return { kind: 'unknown' }
+}
+const keyInfo = supabaseKeyInfo(supabaseServiceKey)
+let wrongSupabaseKey = false
+if (keyInfo.kind === 'public') {
+  wrongSupabaseKey = true
+  problems.push('SUPABASE_SERVICE_ROLE_KEY is the PUBLIC (anon / publishable) key — use the service_role / secret key from Supabase → Project Settings → API Keys, then redeploy')
+}
+const urlRef = (supabaseUrl.match(/^https:\/\/([a-z0-9]+)\.supabase\.co$/) || [])[1]
+if (keyInfo.ref && urlRef && keyInfo.ref !== urlRef) {
+  wrongSupabaseKey = true
+  problems.push(`SUPABASE_SERVICE_ROLE_KEY belongs to another Supabase project (${keyInfo.ref}) than SUPABASE_URL (${urlRef})`)
+}
+
 export const config = {
   mode,
   razorpay,
   active: razorpay[mode],
   // true when the active mode can take payments
-  ready: Boolean(razorpay[mode].keyId && razorpay[mode].keySecret && !placeholder(supabaseUrl) && !placeholder(supabaseServiceKey)),
+  ready: Boolean(razorpay[mode].keyId && razorpay[mode].keySecret && !placeholder(supabaseUrl) && !placeholder(supabaseServiceKey) && !wrongSupabaseKey),
   supabaseUrl,
   supabaseServiceKey,
   allowedOrigins: env('ALLOWED_ORIGINS', 'http://localhost:5173')

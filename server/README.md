@@ -56,7 +56,12 @@ Copy `server/.env.example` to `server/.env` and fill in:
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API (**service_role / secret** key) |
 | `ALLOWED_ORIGINS` | Website addresses allowed to call the server |
 
-The server refuses to use a key in the wrong slot (a `rzp_live_` key in the test slot, or the reverse).
+The server refuses to use a key in the wrong slot (a `rzp_live_` key in the test slot, or the reverse),
+and refuses the Supabase **public** (anon / publishable) key — `/health` names the problem. With the public key
+every payment would fail with "Request not found", because the database hides all requests from it.
+
+When the server refuses a payment it writes the real reason to the log (Vercel → payment server → **Logs**),
+e.g. `refused: request belongs to another account`.
 
 ### 3. Run locally
 ```

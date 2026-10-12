@@ -2,6 +2,15 @@
 // each signed-in person only ever sees their own rows.
 import { supabase } from './supabase'
 
+// Id of the person logged in. Admins can READ everyone's rows (for the Admin Panel), so the
+// customer dashboard always filters to the logged-in person's own rows explicitly.
+const myId = async () => {
+  const { data } = await supabase.auth.getSession()
+  const id = data.session?.user?.id
+  if (!id) throw new Error('Please log in again. (NOT_SIGNED_IN)')
+  return id
+}
+
 const unwrap = ({ data, error }) => {
   if (error) throw error
   return data
@@ -18,14 +27,15 @@ export const friendlyError = (e) => {
 
 export const api = {
   // Reports
-  listReports: () =>
-    supabase.from('reports').select('*').order('created_at', { ascending: false }).then(unwrap),
+  listReports: async () =>
+    supabase.from('reports').select('*').eq('user_id', await myId()).order('created_at', { ascending: false }).then(unwrap),
 
-  getReport: (id) =>
+  getReport: async (id) =>
     supabase
       .from('reports')
       .select('*, report_schemes(*), report_events(*)')
       .eq('id', id)
+      .eq('user_id', await myId())
       .maybeSingle()
       .then(unwrap),
 
@@ -42,8 +52,8 @@ export const api = {
   },
 
   // Applications
-  listApplications: () =>
-    supabase.from('applications').select('*').order('created_at', { ascending: false }).then(unwrap),
+  listApplications: async () =>
+    supabase.from('applications').select('*').eq('user_id', await myId()).order('created_at', { ascending: false }).then(unwrap),
 
   createApplication: ({ userId, reportId, schemeName }) =>
     supabase
@@ -54,8 +64,8 @@ export const api = {
       .then(unwrap),
 
   // Queries
-  listQueries: () =>
-    supabase.from('queries').select('*').order('created_at', { ascending: false }).then(unwrap),
+  listQueries: async () =>
+    supabase.from('queries').select('*').eq('user_id', await myId()).order('created_at', { ascending: false }).then(unwrap),
 
   createQuery: ({ userId, subject, message, reportId }) =>
     supabase.from('queries').insert({ user_id: userId, subject, message, report_id: reportId || null }).select().single().then(unwrap),

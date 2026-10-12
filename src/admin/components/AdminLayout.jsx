@@ -12,6 +12,7 @@ const NAV = [
   { to: '/admin/queries', label: 'Queries', icon: 'fa-headset' },
   { to: '/admin/applications', label: 'Applications', icon: 'fa-clipboard-list' },
   { to: '/admin/free-report-leads', label: 'Free Report Leads', icon: 'fa-file-arrow-down' },
+  { to: '/admin/login-activity', label: 'Login Activity', icon: 'fa-user-shield' },
   { to: '/admin/settings', label: 'Settings', icon: 'fa-gear' },
 ]
 

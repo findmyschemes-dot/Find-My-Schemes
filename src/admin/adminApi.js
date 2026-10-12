@@ -63,6 +63,10 @@ export const adminApi = {
   resolveReview: (id) =>
     sb.from('payment_orders').update({ needs_review: false, reviewed_at: new Date().toISOString() }).eq('id', id).then(unwrap),
 
+  // login history (Admin -> Login Activity)
+  loginEvents: () =>
+    sb.from('admin_login_events_v').select('*').order('created_at', { ascending: false }).range(0, 1999).then(unwrap),
+
   settings: () => sb.from('app_settings').select('*').order('key').then(unwrap),
   setSetting: (key, value) =>
     sb.from('app_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key).then(unwrap),
