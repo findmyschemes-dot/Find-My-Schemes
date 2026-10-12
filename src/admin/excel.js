@@ -58,6 +58,7 @@ export async function downloadExcel(filename, sheets) {
 const STATUS_LABEL = { submitted: 'Submitted', processing: 'In review', ready: 'Delivered', cancelled: 'Cancelled' }
 const PAY_LABEL = { awaiting: 'Awaiting payment', paid: 'Paid', waived: 'Waived', refunded: 'Refunded' }
 const inp = (k) => (r) => r.inputs?.[k]
+const ONLINE_LABEL = { created: 'Opened, not paid', attempted: 'Tried, failed', paid: 'Paid online', superseded: 'Replaced' }
 
 const PAYMENT_COLS = [
   { header: 'Amount due', key: 'amount_due', type: 'money' },
@@ -67,6 +68,10 @@ const PAYMENT_COLS = [
   { header: 'Method', key: 'payment_method', width: 14 },
   { header: 'Reference / UTR', key: 'payment_reference', width: 22 },
   { header: 'Payment note', key: 'payment_note', width: 26 },
+  { header: 'Online status', key: 'online_status', value: (r) => ONLINE_LABEL[r.online_status] || r.online_status, width: 14 },
+  { header: 'Online failed tries', key: 'online_failed_attempts', type: 'number', width: 10 },
+  { header: 'Online last error', key: 'online_error', width: 30 },
+  { header: 'Needs review', key: 'online_review', value: (r) => (r.online_review ? 'Yes' : null), width: 10 },
 ]
 
 export const COLUMNS = {

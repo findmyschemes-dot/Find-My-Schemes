@@ -8,6 +8,7 @@ import { PaymentBadge, WorkBadge } from '../../components/StatusBadge'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime, ageText } from './Requests'
+import OnlinePayments from '../components/OnlinePayments'
 
 const LABELS = {
   entity_type: 'Type of business', industry: 'Industry', sub_sector: 'Products / services', state: 'State', city: 'City / District',
@@ -121,6 +122,7 @@ export default function RequestDetail() {
   }
 
   const inputs = r.inputs || {}
+  const isOnline = String(r.payment_method || '').startsWith('Razorpay')
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -167,7 +169,7 @@ export default function RequestDetail() {
 
       {!locked && r.payment_status === 'awaiting' && (
         <div className="mb-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm">
-          <i className="fa-solid fa-clock mr-2" />Payment of {fmtINR(r.amount_due)} not confirmed yet. Mark it paid (right) once the money is received.
+          <i className="fa-solid fa-clock mr-2" />Payment of {fmtINR(r.amount_due)} not confirmed yet. The customer can pay online from their dashboard; online payments are marked paid automatically. If the money came another way (UPI / bank / cash), mark it paid on the right.
         </div>
       )}
 
@@ -335,8 +337,22 @@ export default function RequestDetail() {
             {r.payment_status === 'paid' && (
               <div className="flex gap-3 border-t border-gray-100 pt-3 text-xs">
                 <button disabled={!!busy} onClick={() => run('refund', () => adminApi.setPayment(r.id, { payment_status: 'refunded' }), 'Marked as refunded.')} className="text-red-600 hover:underline">Mark refunded</button>
-                <button disabled={!!busy} onClick={() => run('undo', () => adminApi.setPayment(r.id, { payment_status: 'awaiting', payment_method: null, payment_reference: null }), 'Payment moved back to awaiting.')} className="text-gray-500 hover:underline">Undo — not paid</button>
+                <button
+                  disabled={!!busy}
+                  onClick={() => {
+                    if (isOnline && !window.confirm('This was paid online through Razorpay. Moving it back to "awaiting" lets the customer pay again. Continue?')) return
+                    run('undo', () => adminApi.setPayment(r.id, { payment_status: 'awaiting', payment_method: null, payment_reference: null }), 'Payment moved back to awaiting.')
+                  }}
+                  className="text-gray-500 hover:underline"
+                >
+                  Undo — not paid
+                </button>
               </div>
+            )}
+            {r.payment_status === 'paid' && isOnline && (
+              <p className="text-[11px] text-gray-500 mt-2">
+                To refund an online payment: Razorpay Dashboard → Payments → {r.payment_reference} → Refund. A full refund marks this request Refunded automatically.
+              </p>
             )}
             {['waived', 'refunded'].includes(r.payment_status) && (
               <div className="border-t border-gray-100 pt-3 text-xs">
@@ -344,6 +360,7 @@ export default function RequestDetail() {
               </div>
             )}
           </Card>
+          <OnlinePayments report={r} onChanged={load} />
           <Card title="History">
             <ol className="relative border-l border-gray-200 ml-2 space-y-3">
               {events.map((e) => (

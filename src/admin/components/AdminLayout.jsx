@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAdmin } from '../AdminAuth'
 import { prettyPhone } from '../loginFlow'
+import { adminApi } from '../adminApi'
 
 const NAV = [
   { to: '/admin', label: 'Analytics', icon: 'fa-chart-line', end: true },
@@ -22,6 +23,12 @@ export default function AdminLayout() {
   const main = useRef(null)
   useEffect(() => {
     main.current?.scrollTo(0, 0)
+  }, [pathname])
+
+  // Online payments that need a human (amount mismatch, paid twice, paid after cancel…)
+  const [review, setReview] = useState(0)
+  useEffect(() => {
+    adminApi.paymentOrdersNeedingReview().then((l) => setReview(l?.length || 0)).catch(() => setReview(0))
   }, [pathname])
 
   const logout = async () => {
@@ -47,6 +54,9 @@ export default function AdminLayout() {
               className={({ isActive }) => `sidebar-link flex items-center px-5 py-2.5 text-sm font-medium hover:bg-white/5 hover:text-white ${isActive ? 'active' : ''}`}
             >
               <i className={`fa-solid ${n.icon} w-5 mr-3 text-center`} /> {n.label}
+              {n.to === '/admin/payments' && review > 0 && (
+                <span className="ml-auto text-[10px] font-bold bg-red-600 text-white rounded-full px-1.5 py-0.5" title="Online payments needing review">{review}</span>
+              )}
             </NavLink>
           ))}
         </nav>

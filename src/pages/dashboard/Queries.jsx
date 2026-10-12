@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { api } from '../../lib/api'
 import { useAsync } from '../../lib/useAsync'
@@ -8,10 +9,10 @@ import Alert from '../../components/Alert'
 import EmptyState from '../../components/EmptyState'
 import StatusBadge from '../../components/StatusBadge'
 
-function QueryForm({ onDone, onCancel }) {
+function QueryForm({ onDone, onCancel, preset }) {
   const { user } = useAuth()
-  const [subject, setSubject] = useState('')
-  const [message, setMessage] = useState('')
+  const [subject, setSubject] = useState(preset?.subject || '')
+  const [message, setMessage] = useState(preset?.message || '')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -20,7 +21,7 @@ function QueryForm({ onDone, onCancel }) {
     setBusy(true)
     setError('')
     try {
-      await api.createQuery({ userId: user.id, subject, message })
+      await api.createQuery({ userId: user.id, subject, message, reportId: preset?.reportId })
       onDone()
     } catch (err) {
       setError(err.message)
@@ -31,6 +32,7 @@ function QueryForm({ onDone, onCancel }) {
   return (
     <form onSubmit={submit} className="card p-6 mb-6 space-y-4">
       <h3 className="font-bold text-gray-800">New Query</h3>
+      {preset?.reportId && <p className="text-xs text-gray-500 -mt-2">Linked to the request — the team will see its payment details.</p>}
       <Alert>{error}</Alert>
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
@@ -50,11 +52,25 @@ function QueryForm({ onDone, onCancel }) {
 
 export default function Queries() {
   const { data: queries, loading, error, reload } = useAsync(api.listQueries)
-  const [showForm, setShowForm] = useState(false)
+  // "Raise a query" buttons open this page with the form ready: ?new=1&report=<id>&subject=…
+  const [params, setParams] = useSearchParams()
+  const [preset] = useState(() =>
+    params.get('new')
+      ? {
+          reportId: /^[0-9a-f-]{36}$/i.test(params.get('report') || '') ? params.get('report') : null,
+          subject: (params.get('subject') || '').slice(0, 120),
+          message: params.get('report')
+            ? 'Describe what happened (for example: amount deducted, payment method used, time of payment, any UTR / transaction ID shown):\n'
+            : '',
+        }
+      : null
+  )
+  const [showForm, setShowForm] = useState(Boolean(preset))
   if (loading) return <Spinner />
 
   const done = () => {
     setShowForm(false)
+    if (params.get('new')) setParams({}, { replace: true })
     reload()
   }
 
@@ -79,7 +95,7 @@ export default function Queries() {
         {!showForm && <button onClick={() => setShowForm(true)} className="btn-primary px-4 py-2 text-sm">+ New Query</button>}
       </div>
       <Alert>{error}</Alert>
-      {showForm && <QueryForm onDone={done} onCancel={() => setShowForm(false)} />}
+      {showForm && <QueryForm onDone={done} onCancel={() => setShowForm(false)} preset={preset} />}
       <div className="space-y-4">
         {(queries || []).map((q) => (
           <div key={q.id} className="card p-5">

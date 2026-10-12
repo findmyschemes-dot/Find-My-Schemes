@@ -61,6 +61,7 @@ export default function Queries() {
                   <p className="text-xs text-gray-500">
                     <Link to={`/admin/customers/${r.user_id}`} className="text-darkGreen hover:text-rust font-medium">{r.customer_name || r.customer_email}</Link>
                     {r.customer_mobile && ` · ${r.customer_mobile}`} · {fmtDateTime(r.created_at)}
+                    {r.report_id && <> · <Link to={`/admin/requests/${r.report_id}`} className="text-darkGreen hover:text-rust font-medium">open request →</Link></>}
                   </p>
                 </div>
                 <StatusBadge status={r.status} />

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { api, friendlyError, PAYMENT_LABEL } from '../../lib/api'
@@ -7,7 +7,7 @@ import { fmtDate, fmtINR } from '../../lib/format'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { ReportStatusBadge } from '../../components/StatusBadge'
-import PaymentInstructions from '../../components/PaymentInstructions'
+import PayNowPanel from '../../components/PayNowPanel'
 
 const levelStyle = (level) => (level === 'State Govt' ? 'text-purple-600 bg-purple-50' : 'text-blue-600 bg-blue-50')
 
@@ -77,11 +77,12 @@ export default function ReportDetail() {
   const { id } = useParams()
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { data: report, loading, error } = useAsync(() => api.getReport(id), [id])
+  const { data: report, loading, error, reload } = useAsync(() => api.getReport(id), [id])
+  const onPaid = useCallback(() => reload(), [reload])
   const [applying, setApplying] = useState(null)
   const [actionError, setActionError] = useState('')
 
-  if (loading) return <Spinner />
+  if (loading && !report) return <Spinner />
   if (error) return <Alert>{error}</Alert>
   if (!report) return <div className="p-8 text-center text-red-500">Report not found.</div>
 
@@ -149,7 +150,7 @@ export default function ReportDetail() {
       )}
 
       {report.status !== 'cancelled' && report.payment_status === 'awaiting' && (
-        <div className="mb-6"><PaymentInstructions report={report} /></div>
+        <div className="mb-6"><PayNowPanel report={report} onPaid={onPaid} /></div>
       )}
 
       {!ready && report.status !== 'cancelled' && report.payment_status !== 'awaiting' && (

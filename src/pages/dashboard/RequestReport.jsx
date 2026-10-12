@@ -5,6 +5,8 @@ import { api, friendlyError } from '../../lib/api'
 import { fmtINR } from '../../lib/format'
 import { FORM_VERSION, OPTIONS, emptyForm } from '../../config/reportForm'
 import Alert from '../../components/Alert'
+import { getPaymentConfig } from '../../lib/payments'
+import { useAsync } from '../../lib/useAsync'
 
 function Section({ n, title, hint, children }) {
   return (
@@ -81,6 +83,14 @@ export default function RequestReport() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // Online payment on? (decides the button text and the payment note)
+  const [online, setOnline] = useState(null)
+  useEffect(() => { getPaymentConfig().then((c) => setOnline(Boolean(c.enabled))) }, [])
+
+  // An earlier request still unpaid? Offer to finish that one instead of creating a duplicate.
+  const { data: myReports } = useAsync(api.listReports)
+  const unpaid = (myReports || []).find((r) => r.payment_status === 'awaiting' && r.status !== 'cancelled')
+
   const price = pricing.reportPrice
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
@@ -99,7 +109,8 @@ export default function RequestReport() {
     try {
       const report = await api.submitReportRequest({ ...form, form_version: FORM_VERSION })
       try { sessionStorage.removeItem(DRAFT_KEY) } catch { /* ignore */ }
-      navigate('/dashboard/report-success', { state: { report } })
+      // Request is saved first (status "Awaiting payment"), then the payment window opens on the next page
+      navigate(`/dashboard/report-success?id=${report.id}${online ? '&pay=1' : ''}`, { replace: true, state: { report } })
     } catch (err) {
       setError(friendlyError(err))
     } finally {
@@ -115,6 +126,13 @@ export default function RequestReport() {
           Tell us about the business. Our team prepares the report and emails it within {pricing.slaHours} hours.
         </p>
       </div>
+
+      {unpaid && (
+        <div className="mx-6 sm:mx-8 mt-6 p-4 rounded-lg bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span><i className="fa-solid fa-clock mr-2" />Request <b>{unpaid.report_code}</b> ({unpaid.business_name}) is still awaiting payment.</span>
+          <Link to={`/dashboard/reports/${unpaid.id}`} className="font-semibold underline whitespace-nowrap">Complete that payment instead →</Link>
+        </div>
+      )}
 
       <form onSubmit={onSubmit} className="p-6 sm:p-8">
         <Section n={1} title="Business Details">
@@ -207,10 +225,18 @@ export default function RequestReport() {
           <h3 className="text-lg font-semibold border-b pb-2 mb-4">6. Payment</h3>
           <div className="bg-gray-50 rounded p-4 border border-gray-200 text-sm space-y-2">
             <div className="flex justify-between font-bold text-gray-900"><span>Scheme Eligibility Report</span><span>{fmtINR(price)}</span></div>
-            <p className="text-gray-600">
-              No online payment here. After submitting, the payment details (UPI / bank transfer) and the Request ID to mention are shown.
-              Work starts once the payment is confirmed.
-            </p>
+            {online ? (
+              <p className="text-gray-600">
+                <i className="fa-solid fa-lock mr-1 text-green-700" />
+                Pay securely online right after submitting — UPI, cards, net banking or wallets (Razorpay). The request is saved first,
+                so nothing is lost if the payment does not go through. Work starts once the payment is confirmed.
+              </p>
+            ) : (
+              <p className="text-gray-600">
+                After submitting, the payment details (UPI / bank transfer) and the Request ID to mention are shown.
+                Work starts once the payment is confirmed.
+              </p>
+            )}
           </div>
         </div>
 
@@ -219,7 +245,7 @@ export default function RequestReport() {
         <div className="flex justify-end gap-3">
           <Link to="/dashboard" className="px-6 py-2.5 text-gray-600 font-medium hover:text-gray-900 transition-colors">Cancel</Link>
           <button type="submit" disabled={busy} className="btn-primary px-8 py-2.5">
-            {busy ? 'Submitting…' : 'Submit Request'}
+            {busy ? 'Submitting…' : online ? `Submit & Pay ${fmtINR(price)}` : 'Submit Request'}
           </button>
         </div>
       </form>

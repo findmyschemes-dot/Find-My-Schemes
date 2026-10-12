@@ -25,6 +25,7 @@ export default function Settings() {
   const [settings, admins] = data
   const get = (k) => settings.find((s) => s.key === k)?.value
   const myDigits = String(phone).replace(/\D/g, '')
+  const onlineOn = get('online_payments') !== false && get('online_payments') !== 'false'
 
   const act = async (fn, ok) => {
     setMsg({})
@@ -68,9 +69,31 @@ export default function Settings() {
       </div>
 
       <div className="card p-5 mb-4">
-        <h3 className="font-semibold text-gray-800 mb-1">Payment instructions</h3>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-1">Online payments (Razorpay)</h3>
+            <p className="text-xs text-gray-500">
+              On: customers pay inside the website and requests are marked paid automatically.
+              Off: customers see the manual payment instructions below (use this if Razorpay has a problem).
+              Test / live keys are chosen on the payment server (server/.env → RAZORPAY_MODE).
+            </p>
+          </div>
+          <button
+            onClick={() => act(() => adminApi.setSetting('online_payments', !onlineOn), onlineOn ? 'Online payments switched off.' : 'Online payments switched on.')}
+            className={`relative inline-flex h-7 w-12 flex-shrink-0 rounded-full transition-colors ${onlineOn ? 'bg-green-600' : 'bg-gray-300'}`}
+            aria-label="Online payments on/off"
+            aria-pressed={onlineOn}
+          >
+            <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${onlineOn ? 'left-6' : 'left-1'}`} />
+          </button>
+        </div>
+        <p className={`text-sm font-semibold mt-2 ${onlineOn ? 'text-green-700' : 'text-gray-500'}`}>{onlineOn ? 'On' : 'Off'}</p>
+      </div>
+
+      <div className="card p-5 mb-4">
+        <h3 className="font-semibold text-gray-800 mb-1">Payment instructions (manual)</h3>
         <p className="text-xs text-gray-500 mb-3">
-          Shown to customers after they submit a request (UPI ID, bank details, QR link…). Customers are asked to mention their Request ID.
+          Shown to customers only when online payments are off (UPI ID, bank details, QR link…). Customers are asked to mention their Request ID.
         </p>
         <textarea
           rows={4}
@@ -126,7 +149,7 @@ export default function Settings() {
 
       <div className="card p-5">
         <h3 className="font-semibold text-gray-800 mb-1">Setup</h3>
-        <p className="text-xs text-gray-500 mb-3">Login: mobile number verified by Phone.Email. Payments: collected outside the platform and marked here.</p>
+        <p className="text-xs text-gray-500 mb-3">Login: mobile number verified by Phone.Email. Payments: online through Razorpay (payment server), or marked paid here when collected another way.</p>
         <dl className="divide-y divide-gray-100 text-sm">
           {Object.entries(MODES).map(([k, [label, names]]) => {
             const v = get(k)

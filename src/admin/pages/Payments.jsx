@@ -9,10 +9,13 @@ import { PaymentBadge } from '../../components/StatusBadge'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime } from './Requests'
+import { ModeTag } from '../components/OnlinePayments'
 
 const METHODS = ['UPI', 'Bank transfer', 'Cash', 'Card', 'Cheque', 'Other']
 const TABS = [
   ['awaiting', 'Awaiting payment', (r) => r.payment_status === 'awaiting' && r.status !== 'cancelled'],
+  ['failed', 'Online tries failed', (r) => r.payment_status === 'awaiting' && r.status !== 'cancelled' && r.online_failed_attempts > 0],
+  ['review', 'Needs review', (r) => r.online_review],
   ['paid', 'Paid', (r) => r.payment_status === 'paid'],
   ['waived', 'Waived', (r) => r.payment_status === 'waived'],
   ['refunded', 'Refunded', (r) => r.payment_status === 'refunded'],
@@ -74,7 +77,7 @@ export default function Payments() {
     <div className="max-w-7xl mx-auto">
       <PageHeader
         title="Payments"
-        subtitle={`Collected outside the platform · ${fmtINR(sum(paid, 'amount_paid'))} received · ${fmtINR(sum(awaiting, 'amount_due'))} awaiting`}
+        subtitle={`Online (Razorpay) and manual · ${fmtINR(sum(paid, 'amount_paid'))} received · ${fmtINR(sum(awaiting, 'amount_due'))} awaiting`}
       >
         <SearchBox value={q} onChange={setQ} placeholder="Request ID, customer, UTR…" />
         <DownloadButton count={filtered.length} onClick={() => downloadExcel(`payments-${tab}`, [{ name: 'Payments', columns: COLUMNS.payments, rows: filtered }])} />
@@ -100,7 +103,20 @@ export default function Payments() {
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap text-gray-600">{fmtDateTime(r.created_at)}</td>
                   <td className="py-3 px-4"><PaymentBadge status={r.payment_status} /></td>
-                  <td className="py-3 px-4 text-gray-600">{[r.payment_method, r.payment_reference].filter(Boolean).join(' · ') || '—'}</td>
+                  <td className="py-3 px-4 text-gray-600">
+                    <div className="flex items-center gap-1 flex-wrap">
+                      {[r.payment_method, r.payment_reference].filter(Boolean).join(' · ') || '—'}
+                      {r.online_mode === 'test' && String(r.payment_method || '').startsWith('Razorpay') && <ModeTag mode="test" />}
+                    </div>
+                    {r.payment_status === 'awaiting' && r.online_status && (
+                      <div className="text-xs mt-0.5">
+                        {r.online_failed_attempts > 0
+                          ? <span className="text-red-600">Online: {r.online_failed_attempts} failed tr{r.online_failed_attempts > 1 ? 'ies' : 'y'}{r.online_error ? ` — ${r.online_error}` : ''}</span>
+                          : <span className="text-gray-500">Online: payment window opened, not paid</span>}
+                      </div>
+                    )}
+                    {r.online_review && <div className="text-xs mt-0.5 text-red-700 font-semibold"><i className="fa-solid fa-triangle-exclamation mr-1" />Needs review — open the request</div>}
+                  </td>
                   <td className="py-3 px-4 text-right font-semibold whitespace-nowrap">{fmtINR(r.amount_paid ?? r.amount_due)}</td>
                   <td className="py-3 px-4 text-right">
                     {r.payment_status === 'awaiting' && r.status !== 'cancelled' ? <QuickPay r={r} onDone={reload} /> : <span className="text-gray-600 whitespace-nowrap">{fmtDateTime(r.paid_at)}</span>}

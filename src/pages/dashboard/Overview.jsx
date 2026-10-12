@@ -51,7 +51,7 @@ export default function Overview() {
       {awaiting.length > 0 && (
         <Link to={`/dashboard/reports/${awaiting[0].id}`} className="mb-6 p-4 rounded-xl bg-yellow-50 border border-yellow-200 text-yellow-900 text-sm flex items-center justify-between gap-3 hover:bg-yellow-100">
           <span><i className="fa-solid fa-clock mr-2" />{awaiting.length} request{awaiting.length > 1 ? 's are' : ' is'} awaiting payment. Work starts once payment is confirmed.</span>
-          <span className="font-semibold whitespace-nowrap">How to pay →</span>
+          <span className="font-semibold whitespace-nowrap">Pay now →</span>
         </Link>
       )}
       <div className="mb-8">

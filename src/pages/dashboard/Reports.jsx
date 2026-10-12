@@ -81,7 +81,7 @@ export default function Reports() {
                   <div className="text-center py-4">
                     <i className="fa-solid fa-indian-rupee-sign text-yellow-500 text-3xl mb-2" />
                     <p className="text-sm text-gray-700 font-medium">Payment of {fmtINR(r.amount_due)} pending</p>
-                    <p className="text-xs text-gray-500 mt-1">Open the request for payment details. Work starts once payment is confirmed.</p>
+                    <p className="text-xs text-gray-500 mt-1">Complete the payment to start the report.</p>
                   </div>
                 ) : (
                   <div className="text-center py-4">
@@ -92,7 +92,7 @@ export default function Reports() {
               </div>
               <div className="p-4 border-t border-gray-100 flex gap-2">
                 <Link to={`/dashboard/reports/${r.id}`} className="flex-1 btn-outline text-center py-2 text-sm font-medium">
-                  {r.payment_status === 'awaiting' && r.status !== 'cancelled' ? 'How to Pay' : 'View Details'}
+                  {r.payment_status === 'awaiting' && r.status !== 'cancelled' ? 'Pay Now' : 'View Details'}
                 </Link>
                 {ready && r.report_file_path && <PdfButton path={r.report_file_path} />}
               </div>

@@ -55,6 +55,14 @@ export const adminApi = {
   freeReportLeads: () => all('free_report_leads'),
   deleteFreeReportLead: (id) => sb.from('free_report_leads').delete().eq('id', id).then(unwrap),
 
+  // online payments (Razorpay)
+  paymentOrders: (reportId) =>
+    sb.from('admin_payment_orders_v').select('*').eq('report_id', reportId).order('created_at', { ascending: false }).then(unwrap),
+  paymentOrdersNeedingReview: () =>
+    sb.from('admin_payment_orders_v').select('*').eq('needs_review', true).order('updated_at', { ascending: false }).then(unwrap),
+  resolveReview: (id) =>
+    sb.from('payment_orders').update({ needs_review: false, reviewed_at: new Date().toISOString() }).eq('id', id).then(unwrap),
+
   settings: () => sb.from('app_settings').select('*').order('key').then(unwrap),
   setSetting: (key, value) =>
     sb.from('app_settings').update({ value, updated_at: new Date().toISOString() }).eq('key', key).then(unwrap),
