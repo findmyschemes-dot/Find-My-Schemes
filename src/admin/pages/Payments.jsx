@@ -10,6 +10,8 @@ import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime } from './Requests'
 import { ModeTag } from '../components/OnlinePayments'
+import WaIcon from '../components/WaIcon'
+import { MSG } from '../../lib/whatsapp'
 
 const METHODS = ['UPI', 'Bank transfer', 'Cash', 'Card', 'Cheque', 'Other']
 const TABS = [
@@ -99,7 +101,12 @@ export default function Payments() {
                   </td>
                   <td className="py-3 px-4">
                     <Link to={`/admin/customers/${r.user_id}`} className="text-gray-900 hover:text-rust">{r.customer_name || '—'}</Link>
-                    <div className="text-xs text-gray-500">{r.customer_mobile ? `+${r.customer_mobile}` : r.customer_email}</div>
+                    <div className="text-xs text-gray-500">
+                      {r.customer_mobile ? `+${r.customer_mobile}` : r.customer_email}
+                      {r.customer_mobile && r.payment_status === 'awaiting' && r.status !== 'cancelled' && (
+                        <WaIcon number={r.customer_mobile} text={MSG.paymentReminder(r.customer_name, r)} label="Remind" className="ml-2 text-xs" />
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-4 whitespace-nowrap text-gray-600">{fmtDateTime(r.created_at)}</td>
                   <td className="py-3 px-4"><PaymentBadge status={r.payment_status} /></td>

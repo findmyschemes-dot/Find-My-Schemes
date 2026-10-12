@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Signup from './pages/Signup'
 import PhoneCallback from './pages/PhoneCallback'
 import ProtectedRoute from './components/ProtectedRoute'
+import { WhatsAppProvider } from './components/WhatsAppButton'
 import DashboardLayout from './pages/dashboard/DashboardLayout'
 import Overview from './pages/dashboard/Overview'
 import Reports from './pages/dashboard/Reports'
@@ -20,6 +21,7 @@ const AdminApp = lazy(() => import('./admin/AdminApp'))
 
 export default function App() {
   return (
+    <WhatsAppProvider>
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
@@ -50,5 +52,6 @@ export default function App() {
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </WhatsAppProvider>
   )
 }

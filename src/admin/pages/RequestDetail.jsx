@@ -9,6 +9,8 @@ import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime, ageText } from './Requests'
 import OnlinePayments from '../components/OnlinePayments'
+import WaIcon from '../components/WaIcon'
+import { MSG } from '../../lib/whatsapp'
 
 const LABELS = {
   entity_type: 'Type of business', industry: 'Industry', sub_sector: 'Products / services', state: 'State', city: 'City / District',
@@ -280,6 +282,11 @@ export default function RequestDetail() {
               <div className="pt-2 text-gray-600">Send report to: <b className="text-gray-900">{r.delivery_email}</b></div>
               <div className="flex gap-3 pt-3">
                 <a href={`mailto:${r.delivery_email}?subject=${encodeURIComponent(`Your Scheme Eligibility Report — ${r.report_code}`)}`} className="text-darkGreen font-medium hover:text-rust"><i className="fa-solid fa-paper-plane mr-1" />Email</a>
+                <WaIcon
+                  number={r.customer_mobile}
+                  label="WhatsApp"
+                  text={r.payment_status === 'awaiting' && r.status !== 'cancelled' ? MSG.paymentReminder(r.customer_name, r) : MSG.toCustomer(r.customer_name, r)}
+                />
                 <Link to={`/admin/customers/${r.user_id}`} className="text-darkGreen font-medium hover:text-rust">Profile →</Link>
               </div>
             </div>

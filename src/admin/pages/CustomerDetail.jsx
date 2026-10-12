@@ -8,6 +8,7 @@ import { DownloadButton, Th } from '../components/Toolbar'
 import { PaymentBadge, WorkBadge } from '../../components/StatusBadge'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
+import { MSG, waLink } from '../../lib/whatsapp'
 
 export default function CustomerDetail() {
   const { id } = useParams()
@@ -30,7 +31,7 @@ export default function CustomerDetail() {
         </div>
         <div className="flex gap-2">
           {c.mobile && (
-            <a href={`https://wa.me/${c.mobile}`} target="_blank" rel="noreferrer" className="btn-outline px-3 py-2 text-sm">
+            <a href={waLink(c.mobile, MSG.toCustomer(c.full_name))} target="_blank" rel="noreferrer" className="btn-outline px-3 py-2 text-sm">
               <i className="fa-brands fa-whatsapp text-green-600 mr-1" /> WhatsApp
             </a>
           )}

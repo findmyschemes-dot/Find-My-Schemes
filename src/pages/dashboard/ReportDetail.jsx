@@ -8,6 +8,8 @@ import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { ReportStatusBadge } from '../../components/StatusBadge'
 import PayNowPanel from '../../components/PayNowPanel'
+import { useWhatsAppMessage } from '../../components/WhatsAppButton'
+import { MSG } from '../../lib/whatsapp'
 
 const levelStyle = (level) => (level === 'State Govt' ? 'text-purple-600 bg-purple-50' : 'text-blue-600 bg-blue-50')
 
@@ -79,6 +81,7 @@ export default function ReportDetail() {
   const navigate = useNavigate()
   const { data: report, loading, error, reload } = useAsync(() => api.getReport(id), [id])
   const onPaid = useCallback(() => reload(), [reload])
+  useWhatsAppMessage(report ? MSG.request(report) : null)
   const [applying, setApplying] = useState(null)
   const [actionError, setActionError] = useState('')
 

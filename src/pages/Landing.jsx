@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import SiteHeader from '../components/SiteHeader'
+import { MSG, prettyWhatsApp, supportLink } from '../lib/whatsapp'
 import { useAuth } from '../context/AuthContext'
 import DemoReportModal, { alreadyRegistered, startDemoDownload } from '../components/DemoReportModal'
 
@@ -302,13 +303,16 @@ export default function Landing() {
               <i className="fa-solid fa-download" /> Demo report
             </a>
           </div>
+          <a href={supportLink(MSG.general)} target="_blank" rel="noopener noreferrer" className="mt-6 text-sm text-gray-300 hover:text-white inline-flex items-center gap-2">
+            <i className="fa-brands fa-whatsapp text-lg text-[#25D366]" /> Questions first? Chat with us on WhatsApp
+          </a>
         </div>
       </section>
 
       {/* Footer */}
       <footer className="bg-darkerGreen text-gray-400 py-16 px-4 sm:px-6 lg:px-8 border-t border-gray-800">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between gap-6 md:gap-12">
-          <div className="w-full md:w-1/2 lg:w-5/12">
+          <div className="w-full md:w-5/12">
             <div className="flex items-center gap-2 mb-6">
               <img src="/assets/Logo.png" alt="Find My Schemes Logo" className="h-[70px] sm:h-[80px] w-auto opacity-90" />
             </div>
@@ -318,7 +322,14 @@ export default function Landing() {
             </p>
             <p className="text-xs text-gray-500 hidden md:block">&copy; 2026 Find My Schemes. All rights reserved.</p>
           </div>
-          <div className="w-full md:w-1/2 lg:w-1/3">
+          <div className="w-full md:w-1/4">
+            <h4 className="text-yellow-600 font-semibold text-sm tracking-wider uppercase mb-6">Talk To Us</h4>
+            <a href={supportLink(MSG.general)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-gray-300 hover:text-white transition-colors">
+              <i className="fa-brands fa-whatsapp text-xl text-[#25D366]" /> WhatsApp {prettyWhatsApp()}
+            </a>
+            <p className="text-xs text-gray-500 mt-2">Questions about schemes, the report or a payment — message any time.</p>
+          </div>
+          <div className="w-full md:w-1/4 lg:w-1/4">
             <h4 className="text-yellow-600 font-semibold text-sm tracking-wider uppercase mb-6">Who Is It For?</h4>
             <ul className="flex flex-col gap-3 text-sm text-gray-300">
               {AUDIENCE.map((a) => (

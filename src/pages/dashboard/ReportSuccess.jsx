@@ -7,6 +7,8 @@ import { fmtINR } from '../../lib/format'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import PayNowPanel, { queryLink } from '../../components/PayNowPanel'
+import { useWhatsAppMessage } from '../../components/WhatsAppButton'
+import { MSG } from '../../lib/whatsapp'
 
 // Shown right after the form is submitted: pay now → success.
 // Works after a refresh too (the request id is in the address: ?id=…).
@@ -28,6 +30,7 @@ export default function ReportSuccess() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onPaid = useCallback(() => reload(), [reload])
+  useWhatsAppMessage(report ? (report.payment_status === 'awaiting' ? MSG.payment(report) : MSG.request(report)) : null)
 
   if (!id) return <Navigate to="/dashboard/reports" replace />
   if (loading && !report) return <Spinner />

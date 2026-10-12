@@ -7,6 +7,8 @@ import { PageHeader, DownloadButton, SearchBox, Tabs, matches, Th } from '../com
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime } from './Requests'
+import WaIcon from '../components/WaIcon'
+import { MSG } from '../../lib/whatsapp'
 
 const DAY = 24 * 3600 * 1000
 const RANGES = [
@@ -63,7 +65,7 @@ export default function FreeReportLeads() {
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="py-3 px-4 font-medium text-gray-900">{r.name}</td>
                   <td className="py-3 px-4"><a href={`mailto:${r.email}`} className="text-darkGreen hover:text-rust">{r.email}</a></td>
-                  <td className="py-3 px-4 whitespace-nowrap"><a href={`tel:+${r.phone}`} className="text-darkGreen hover:text-rust">{prettyPhone(r.phone)}</a></td>
+                  <td className="py-3 px-4 whitespace-nowrap"><a href={`tel:+${r.phone}`} className="text-darkGreen hover:text-rust">{prettyPhone(r.phone)}</a> <WaIcon number={r.phone} text={MSG.toLead(r.name)} className="ml-1" /></td>
                   <td className="py-3 px-4 whitespace-nowrap text-gray-700">{fmtDateTime(r.created_at)}</td>
                   <td className="py-3 px-4 text-right">
                     <button onClick={() => remove(r)} className="text-gray-400 hover:text-red-600" title="Delete lead" aria-label="Delete lead"><i className="fa-regular fa-trash-can" /></button>

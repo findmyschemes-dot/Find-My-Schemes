@@ -7,6 +7,8 @@ import { downloadExcel, COLUMNS } from '../excel'
 import { PageHeader, DownloadButton, SearchBox, Tabs, matches, Th } from '../components/Toolbar'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
+import WaIcon from '../components/WaIcon'
+import { MSG } from '../../lib/whatsapp'
 
 const SEGMENTS = [
   ['all', 'All', () => true],
@@ -42,7 +44,7 @@ export default function Customers() {
                     <Link to={`/admin/customers/${c.id}`} className="font-semibold text-darkGreen hover:text-rust">{c.full_name || '—'}</Link>
                     <div className="text-xs text-gray-500">{c.email}</div>
                   </td>
-                  <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{c.mobile ? `+${c.mobile}` : '—'}</td>
+                  <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{c.mobile ? <>+{c.mobile} <WaIcon number={c.mobile} text={MSG.toCustomer(c.full_name)} className="ml-1" /></> : '—'}</td>
                   <td className="py-3 px-4 text-gray-700">{c.business_name || '—'}</td>
                   <td className="py-3 px-4 text-gray-600 whitespace-nowrap">{fmtDate(c.created_at)}</td>
                   <td className="py-3 px-4 text-right">{c.reports_count}</td>

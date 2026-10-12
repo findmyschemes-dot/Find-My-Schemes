@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { fmtINR } from '../lib/format'
 import { getPaymentConfig, paymentErrorText, paymentsApi, startPayment } from '../lib/payments'
 import PaymentInstructions from './PaymentInstructions'
+import { MSG, supportLink } from '../lib/whatsapp'
 
 const STAGE_TEXT = {
   starting: 'Opening secure payment…',
@@ -142,7 +143,8 @@ export default function PayNowPanel({ report, onPaid, autoStart = false }) {
         <div className="mt-4 p-3 rounded bg-red-50 border border-red-200 text-red-700 text-sm">
           <p className="font-semibold"><i className="fa-solid fa-circle-xmark mr-2" />Payment failed{outcome.error ? `: ${outcome.error}` : '.'}</p>
           <p className="mt-1">No money is kept for a failed payment. If anything was deducted, the bank returns it automatically (usually within 5–7 working days). Try again with another method, or{' '}
-            <Link to={queryLink(report, 'Payment failed')} className="underline font-semibold">raise a query</Link>.</p>
+            <Link to={queryLink(report, 'Payment failed')} className="underline font-semibold">raise a query</Link> or{' '}
+            <a href={supportLink(MSG.payment(report))} target="_blank" rel="noopener noreferrer" className="underline font-semibold">message us on WhatsApp</a>.</p>
         </div>
       )}
       {status === 'pending' && (
@@ -160,6 +162,9 @@ export default function PayNowPanel({ report, onPaid, autoStart = false }) {
             {checking ? 'Checking…' : 'Paid but still pending? Check status'}
           </button>
           <Link to={queryLink(report)} className="underline">Raise a query</Link>
+          <a href={supportLink(MSG.payment(report))} target="_blank" rel="noopener noreferrer" className="underline text-[#128C7E] font-semibold">
+            <i className="fa-brands fa-whatsapp mr-1" />WhatsApp us
+          </a>
         </span>
       </div>
       {checkMsg && <p className="mt-2 text-xs">{checkMsg}</p>}

@@ -8,6 +8,8 @@ import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import EmptyState from '../../components/EmptyState'
 import StatusBadge from '../../components/StatusBadge'
+import { WhatsAppInline } from '../../components/WhatsAppButton'
+import { MSG, prettyWhatsApp } from '../../lib/whatsapp'
 
 function QueryForm({ onDone, onCancel, preset }) {
   const { user } = useAuth()
@@ -95,6 +97,12 @@ export default function Queries() {
         {!showForm && <button onClick={() => setShowForm(true)} className="btn-primary px-4 py-2 text-sm">+ New Query</button>}
       </div>
       <Alert>{error}</Alert>
+      <div className="card p-4 mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="text-sm text-gray-700">
+          <b>Need a quick answer?</b> Chat with our team on WhatsApp ({prettyWhatsApp()}). For anything about a request, include its Request ID.
+        </div>
+        <WhatsAppInline text={MSG.dashboard} className="px-4 py-2 text-sm whitespace-nowrap" />
+      </div>
       {showForm && <QueryForm onDone={done} onCancel={() => setShowForm(false)} preset={preset} />}
       <div className="space-y-4">
         {(queries || []).map((q) => (

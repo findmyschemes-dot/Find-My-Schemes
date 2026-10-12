@@ -8,6 +8,8 @@ import StatusBadge from '../../components/StatusBadge'
 import Spinner from '../../components/Spinner'
 import Alert from '../../components/Alert'
 import { fmtDateTime } from './Requests'
+import WaIcon from '../components/WaIcon'
+import { MSG } from '../../lib/whatsapp'
 
 function Reply({ q, onDone }) {
   const [text, setText] = useState(q.admin_reply || '')
@@ -60,7 +62,7 @@ export default function Queries() {
                   <h3 className="font-semibold text-gray-900">{r.subject}</h3>
                   <p className="text-xs text-gray-500">
                     <Link to={`/admin/customers/${r.user_id}`} className="text-darkGreen hover:text-rust font-medium">{r.customer_name || r.customer_email}</Link>
-                    {r.customer_mobile && ` · ${r.customer_mobile}`} · {fmtDateTime(r.created_at)}
+                    {r.customer_mobile && <> · {r.customer_mobile} <WaIcon number={r.customer_mobile} text={`${MSG.toCustomer(r.customer_name)} About your query “${r.subject}”: `} /></>} · {fmtDateTime(r.created_at)}
                     {r.report_id && <> · <Link to={`/admin/requests/${r.report_id}`} className="text-darkGreen hover:text-rust font-medium">open request →</Link></>}
                   </p>
                 </div>
