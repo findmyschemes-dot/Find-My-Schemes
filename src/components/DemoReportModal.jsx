@@ -1,24 +1,54 @@
 import { useEffect, useRef, useState } from 'react'
-import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import { normalizePhone, isValidPhone } from '../lib/phone'
 
-const PDF = '/assets/Demo.pdf'
-const SAVED_KEY = 'fms_demo_lead' // remembers this browser already filled the form
+const API = '/api/demo-report'
+const SAVED_KEY = 'fms_demo_lead' // remembers this browser's details so the form isn't asked twice
+let lastUrl = '' // blob URL of the last downloaded PDF (for "Download again")
 
 const isEmail = (v) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.trim())
 
-export function startDemoDownload() {
+function saveBlob(blob) {
+  if (lastUrl) URL.revokeObjectURL(lastUrl)
+  lastUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = PDF
+  a.href = lastUrl
   a.download = 'Find-My-Schemes-Demo-Report.pdf'
   document.body.appendChild(a)
   a.click()
   a.remove()
 }
 
-export function alreadyRegistered() {
+// Sends the details to the server; the PDF is only returned after the lead is saved.
+async function requestDemo(details) {
+  const r = await fetch(API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(details),
+  })
+  if (!r.ok || !(r.headers.get('content-type') || '').includes('pdf')) throw new Error('failed')
+  saveBlob(await r.blob())
+}
+
+function savedDetails() {
   try {
-    return Boolean(localStorage.getItem(SAVED_KEY))
+    const v = JSON.parse(localStorage.getItem(SAVED_KEY) || 'null')
+    return v && v.email && v.phone ? v : null
+  } catch {
+    return null
+  }
+}
+
+export function alreadyRegistered() {
+  return Boolean(savedDetails())
+}
+
+// Repeat download for a browser that already filled the form (re-sends saved details)
+export async function startDemoDownload() {
+  const d = savedDetails()
+  if (!d) return false
+  try {
+    await requestDemo({ ...d, source: 'landing-repeat' })
+    return true
   } catch {
     return false
   }
@@ -63,19 +93,12 @@ export default function DemoReportModal({ open, onClose, source = 'landing' }) {
     setBusy(true)
     setFailed('')
     try {
-      if (!isSupabaseConfigured) throw new Error('not configured')
-      const { error } = await supabase.from('free_report_leads').insert({
-        name: form.name.trim(),
-        email: form.email.trim().toLowerCase(),
-        phone: normalizePhone(form.phone),
-        source,
-      })
-      if (error) throw error
+      const details = { name: form.name.trim(), email: form.email.trim().toLowerCase(), phone: normalizePhone(form.phone) }
+      await requestDemo({ ...details, source })
       try {
-        localStorage.setItem(SAVED_KEY, '1')
+        localStorage.setItem(SAVED_KEY, JSON.stringify(details))
       } catch { /* private mode — fine */ }
       setDone(true)
-      startDemoDownload()
     } catch {
       setFailed('Could not save the details just now. Please try again in a moment.')
     }
@@ -113,7 +136,7 @@ export default function DemoReportModal({ open, onClose, source = 'landing' }) {
             <h3 className="font-serif text-2xl font-bold text-darkGreen mb-2">Thank you!</h3>
             <p className="text-gray-600 mb-6">The demo report download has started.</p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
-              <a href={PDF} download className="btn-outline px-4 py-2 text-sm"><i className="fa-solid fa-download mr-2" />Download again</a>
+              <a href={lastUrl} download="Find-My-Schemes-Demo-Report.pdf" className="btn-outline px-4 py-2 text-sm"><i className="fa-solid fa-download mr-2" />Download again</a>
               <button onClick={onClose} className="btn-primary px-4 py-2 text-sm">Close</button>
             </div>
           </div>

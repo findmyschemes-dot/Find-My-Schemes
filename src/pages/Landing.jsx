@@ -68,7 +68,7 @@ export default function Landing() {
   const closeDemo = useCallback(() => setDemoOpen(false), [])
   const openDemo = (e) => {
     e?.preventDefault()
-    if (alreadyRegistered()) startDemoDownload()
+    if (alreadyRegistered()) startDemoDownload().then((ok) => !ok && setDemoOpen(true))
     else setDemoOpen(true)
   }
 
@@ -102,13 +102,13 @@ export default function Landing() {
               </button>
               <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4 w-full text-center">
                 <span className="text-gray-800 font-medium text-sm">₹499 | Delivered within 24 hours</span>
-                <a
-                  href="/assets/Demo.pdf"
+                <button
+                  type="button"
                   onClick={openDemo}
                   className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:text-rust px-4 py-2 rounded-md shadow-sm flex items-center justify-center gap-2 text-sm font-semibold transition-all duration-200"
                 >
                   <i className="fa-solid fa-download" /> Demo report
-                </a>
+                </button>
               </div>
               <hr className="border-gray-300 w-full max-w-md my-4" />
               <p className="text-gray-600 text-base md:text-lg leading-relaxed max-w-md">
@@ -295,13 +295,13 @@ export default function Landing() {
           </button>
           <div className="flex items-center justify-center gap-4 mt-4">
             <p className="text-gray-300 font-medium text-sm">₹499 | Delivered within 24 hours</p>
-            <a
-              href="/assets/Demo.pdf"
+            <button
+              type="button"
               onClick={openDemo}
               className="bg-white/10 border border-white/20 text-white hover:bg-white/20 px-4 py-2 rounded-md shadow-sm flex items-center gap-2 text-sm font-semibold transition-all duration-200"
             >
               <i className="fa-solid fa-download" /> Demo report
-            </a>
+            </button>
           </div>
           <a href={supportLink(MSG.general)} target="_blank" rel="noopener noreferrer" className="mt-6 text-sm text-gray-300 hover:text-white inline-flex items-center gap-2">
             <i className="fa-brands fa-whatsapp text-lg text-[#25D366]" /> Questions first? Chat with us on WhatsApp
